@@ -44,12 +44,26 @@ func TestConnectPkcs11Connection(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err = integraTest.HsmPkiBackend.loadConf(TEST_CONFIG_HSM); err != nil {
+	/*	if err = integraTest.HsmPkiBackend.loadConf(TEST_CONFIG_HSM); err != nil {
+			t.Fatal(err)
+		}
+
+		integraTest.HsmPkiBackend.configurePkcs11Connection()
+		if err = integraTest.HsmPkiBackend.checkPkcs11ConnectionSync(); err != nil {
+			t.Fatal("PKCS#11 connection timed out")
+		}*/
+	testConnectPkcs11Connection(t, integraTest)
+
+}
+
+func testConnectPkcs11Connection(t *testing.T, integraTest *testEnv) {
+
+	if err := integraTest.HsmPkiBackend.loadConf(TEST_CONFIG_HSM); err != nil {
 		t.Fatal(err)
 	}
 
 	integraTest.HsmPkiBackend.configurePkcs11Connection()
-	if err = integraTest.HsmPkiBackend.checkPkcs11ConnectionSync(); err != nil {
+	if err := integraTest.HsmPkiBackend.checkPkcs11ConnectionSync(); err != nil {
 		t.Fatal("PKCS#11 connection timed out")
 	}
 }
@@ -141,6 +155,7 @@ func TestPathSetSignedIntermediate(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	testConnectPkcs11Connection(t, integraTest)
 	testSetSignedIntermediate(t, integraTest)
 }
 
@@ -205,6 +220,7 @@ func TestPathFetchCRL(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	testConnectPkcs11Connection(t, integraTest)
 	testSetCRLConfig(t, integraTest)
 	testSetSignedIntermediate(t, integraTest)
 	testFetchCRL(t, integraTest)
@@ -228,6 +244,110 @@ func testFetchCRL(t *testing.T, integraTest *testEnv) {
 		t.Error(err)
 	} else {
 		t.Logf("Fetched CRL status where 200 is populated, 204 is empty: %d", res.Data[logical.HTTPStatusCode])
+	}
+}
+
+func TestPathRevokeCRL(t *testing.T) {
+
+	integraTest, err := newIntegrationTestEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testConnectPkcs11Connection(t, integraTest)
+	testSetCRLConfig(t, integraTest)
+	testSetSignedIntermediate(t, integraTest)
+	testFetchCRL(t, integraTest)
+	testRevokeCRL(t, integraTest)
+}
+
+func testRevokeCRL(t *testing.T, integraTest *testEnv) {
+	req := &logical.Request{
+		Operation: logical.UpdateOperation,
+		Path:      PATH_REVOKE,
+		Storage:   integraTest.Storage,
+	}
+
+	path := pathRevoke(integraTest.HsmPkiBackend)
+
+	data := framework.FieldData{
+		Raw:    map[string]interface{}{},
+		Schema: path.Fields,
+	}
+
+	if _, err := integraTest.HsmPkiBackend.pathRevokeWrite(integraTest.Context, req, &data); err != nil {
+		t.Error(err)
+	} else {
+	}
+}
+
+func TestPathTidyCRL(t *testing.T) {
+
+	integraTest, err := newIntegrationTestEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testConnectPkcs11Connection(t, integraTest)
+	testSetCRLConfig(t, integraTest)
+	testSetSignedIntermediate(t, integraTest)
+	testFetchCRL(t, integraTest)
+	testRevokeCRL(t, integraTest)
+	testTidyCRL(t, integraTest)
+}
+
+func testTidyCRL(t *testing.T, integraTest *testEnv) {
+	req := &logical.Request{
+		Operation: logical.UpdateOperation,
+		Path:      PATH_REVOKE,
+		Storage:   integraTest.Storage,
+	}
+
+	path := pathRevoke(integraTest.HsmPkiBackend)
+
+	data := framework.FieldData{
+		Raw:    map[string]interface{}{},
+		Schema: path.Fields,
+	}
+
+	if _, err := integraTest.HsmPkiBackend.pathRevokeWrite(integraTest.Context, req, &data); err != nil {
+		t.Error(err)
+	} else {
+	}
+}
+
+func TestRotateCRL(t *testing.T) {
+
+	integraTest, err := newIntegrationTestEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testConnectPkcs11Connection(t, integraTest)
+	testSetCRLConfig(t, integraTest)
+	testSetSignedIntermediate(t, integraTest)
+	testFetchCRL(t, integraTest)
+	testRevokeCRL(t, integraTest)
+	testRotateCRL(t, integraTest)
+}
+
+func testRotateCRL(t *testing.T, integraTest *testEnv) {
+	req := &logical.Request{
+		Operation: logical.UpdateOperation,
+		Path:      PATH_ROTATECRL,
+		Storage:   integraTest.Storage,
+	}
+
+	path := pathRotateCRL(integraTest.HsmPkiBackend)
+
+	data := framework.FieldData{
+		Raw:    map[string]interface{}{},
+		Schema: path.Fields,
+	}
+
+	if _, err := integraTest.HsmPkiBackend.pathRotateCRLRead(integraTest.Context, req, &data); err != nil {
+		t.Error(err)
+	} else {
 	}
 }
 

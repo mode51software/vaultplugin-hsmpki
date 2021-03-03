@@ -14,7 +14,7 @@ import (
 
 func pathRevoke(b *HsmPkiBackend) *framework.Path {
 	return &framework.Path{
-		Pattern: `revoke`,
+		Pattern: PATH_REVOKE,
 		Fields: map[string]*framework.FieldSchema{
 			"serial_number": &framework.FieldSchema{
 				Type: framework.TypeString,
@@ -34,7 +34,7 @@ hyphen-separated octal`,
 
 func pathRotateCRL(b *HsmPkiBackend) *framework.Path {
 	return &framework.Path{
-		Pattern: `crl/rotate`,
+		Pattern: PATH_ROTATECRL,
 
 		Callbacks: map[logical.Operation]framework.OperationFunc{
 			logical.ReadOperation: b.pathRotateCRLRead,

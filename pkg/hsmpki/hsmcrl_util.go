@@ -230,7 +230,7 @@ WRITE:
 	}
 
 	var caSigner pkcs11client.HsmSigner
-	caSigner.KeyConfig.Label = b.cachedCAConfig.caKeyAlias //"ECTestCAInterKey0016"
+	caSigner.KeyConfig.Label = b.cachedCAConfig.caKeyAlias
 	caSigner.Pkcs11Client = &b.pkcs11client
 	caSigner.PublicKey = signingBundle.Certificate.PublicKey
 

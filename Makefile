@@ -46,4 +46,14 @@ pathsetcrlconfig:
 pathfetchcrl:
 	go test -v -run TestPathFetchCRL ./pkg/hsmpki
 
+pathrevokecrl:
+	go test -v -run TestPathRevokeCRL ./pkg/hsmpki
+
+pathrotatecrl:
+	go test -v -run TestPathRotateCRL ./pkg/hsmpki
+
+pathtidycrl:
+	go test -v -run TestPathTidyCRL ./pkg/hsmpki
+
+
 .PHONY: build clean fmt start enable
