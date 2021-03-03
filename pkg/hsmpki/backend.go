@@ -94,22 +94,28 @@ func Backend(conf *logical.BackendConfig) (*HsmPkiBackend, error) {
 		Paths: []*framework.Path{
 			pki.PathListRoles(&b.pkiBackend.Backend),
 			pki.PathRoles(&b.pkiBackend.Backend),
-			//pki.PathGenerateRoot(&b.pkiBackend.Backend),
-			//pki.PathGenerateIntermediate(&b.pkiBackend.Backend),
-			//pki.PathSignIntermediate(&b.pkiBackend.Backend),
+			//pathGenerateRoot(&b.pkiBackend.Backend),
+			//pathSignIntermediate(&b),
+			//pathSignSelfIssued(&b),
+			//pathDeleteRoot(&b),
+			//pathGenerateIntermediate(&b),
 			pathSetSignedIntermediate(b),
+			//pathConfigCA(&b),
+			pki.PathConfigCRL(&b.pkiBackend.Backend),
+			//pathConfigURLs(&b),
+			//pathSignVerbatim(&b),
 			pathSign(b),
 			pathIssue(b),
-			pki.PathFetchListCerts(&b.pkiBackend.Backend),
-			pki.PathFetchValid(&b.pkiBackend.Backend),
+			pathRotateCRL(b),
 			pki.PathFetchCA(&b.pkiBackend.Backend),
 			pki.PathFetchCAChain(&b.pkiBackend.Backend),
-			pki.PathConfigCRL(&b.pkiBackend.Backend),
 			pki.PathFetchCRL(&b.pkiBackend.Backend),
 			pki.PathFetchCRLViaCertPath(&b.pkiBackend.Backend),
+			pki.PathFetchValid(&b.pkiBackend.Backend),
+			pki.PathFetchListCerts(&b.pkiBackend.Backend),
 			pathRevoke(b),
-			pathFetchCAKeyAlias(b),
-			// TODO: TIdy and Sign Verbatim
+			pathTidy(b),
+			pathFetchCAKeyAlias(b), // new path
 		},
 		PathsSpecial: &logical.Paths{
 			Unauthenticated: []string{
@@ -151,9 +157,6 @@ func (b *HsmPkiBackend) configurePkcs11Connection() {
 func (b *HsmPkiBackend) checkPkcs11ConnectionAsync() {
 
 	go func() {
-		//		b.refreshMutex.Lock()
-		//		defer b.refreshMutex.Unlock()
-		//b.pkiBackend.Backend.Logger().Info("Attempt to reconnect PKCS#11 connection")
 
 		//b.pkcs11client.Pkcs11Mutex.Lock()
 		//b.pkcs11client.FlushSession()
