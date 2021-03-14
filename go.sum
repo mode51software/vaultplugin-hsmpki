@@ -846,6 +846,10 @@ github.com/moby/term v0.0.0-20200915141129-7f0af18e79f2 h1:SPoLlS9qUUnXcIY4pvA4C
 github.com/moby/term v0.0.0-20200915141129-7f0af18e79f2/go.mod h1:TjQg8pa4iejrUrjiz0MCtMV38jdMNW4doKSiBrEvCQQ=
 github.com/mode51software/pkcs11helper v0.3.0 h1:MmEUwt5HhI4hR/60LyftLdYEa8+S+UYxF6AAz+pXs0c=
 github.com/mode51software/pkcs11helper v0.3.0/go.mod h1:kTP66TAfYMJTuND7oT1y4FWyTmAtkJh/b7QwtH1VOcI=
+github.com/mode51software/pkcs11helper v0.3.1-beta.1 h1:6nRc1BZlH1JnbkqpeWqM0zucmgWvQS6iIF97u4LSvZs=
+github.com/mode51software/pkcs11helper v0.3.1-beta.1/go.mod h1:kTP66TAfYMJTuND7oT1y4FWyTmAtkJh/b7QwtH1VOcI=
+github.com/mode51software/pkcs11helper v0.3.1 h1:HO/qBiOCRqPEQt3rQKA0ESReypP7hn+xrW0XhhCdo7A=
+github.com/mode51software/pkcs11helper v0.3.1/go.mod h1:kTP66TAfYMJTuND7oT1y4FWyTmAtkJh/b7QwtH1VOcI=
 github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
 github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd h1:TRLaZ9cD/w8PVh93nsPXa1VrQ6jlwL5oN8l14QlcNfg=
 github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=

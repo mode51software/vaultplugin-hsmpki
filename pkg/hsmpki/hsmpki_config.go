@@ -2,8 +2,10 @@ package hsmpki
 
 import (
 	"errors"
+	"fmt"
 	"github.com/mode51software/pkcs11helper/pkg/pkcs11client"
 	"strconv"
+	"time"
 )
 
 type HsmPkiConfig struct {
@@ -79,5 +81,13 @@ func (h *HsmPkiConfig) ConvertToHsmConfig() (hsmConfig *pkcs11client.HsmConfig) 
 	hsmConfig.ConnectTimeoutS = uint(connectTimeoutS)
 	readTimeoutS, _ := strconv.ParseUint(h.ReadTimeoutS, 10, 32)
 	hsmConfig.ReadTimeoutS = uint(readTimeoutS)
+	return
+}
+
+func GenDateTimeKeyLabel() (keyLabel string) {
+	t := time.Now()
+	keyLabel = fmt.Sprintf("%d%02d%02d%02d%02d%02d",
+		t.Year(), t.Month(), t.Day(),
+		t.Hour(), t.Minute(), t.Second())
 	return
 }

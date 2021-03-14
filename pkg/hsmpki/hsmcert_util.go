@@ -20,6 +20,78 @@ type inputBundle struct {
 	apiData *framework.FieldData
 }
 
+/*func fetchRootCAInfo(ctx context.Context, req *logical.Request) (*certutil.CAInfoBundle, error) {
+	return fetchCAInfos(ctx, req, ROOTCA_BUNDLE)
+}
+
+func fetchInterCAInfo(ctx context.Context, req *logical.Request) (*certutil.CAInfoBundle, error) {
+	return fetchCAInfos(ctx, req, INTERCA_BUNDLE)
+}*/
+
+// Fetches the CA info. Unlike other certificates, the CA info is stored
+// in the backend as a CertBundle, because we are storing its private key
+//func fetchCAInfo(ctx context.Context, req *logical.Request, whichCA string) (*certutil.CAInfoBundle, error) {
+func fetchCAInfo(ctx context.Context, req *logical.Request) (*certutil.CAInfoBundle, error) {
+	bundleEntry, err := req.Storage.Get(ctx, CA_BUNDLE)
+	if err != nil {
+		return nil, errutil.InternalError{Err: fmt.Sprintf("unable to fetch local CA certificate/key: %v", err)}
+	}
+	if bundleEntry == nil {
+		return nil, errutil.UserError{Err: "backend must be configured with a CA certificate/key"}
+	}
+
+	var bundle certutil.CertBundle
+	if err := bundleEntry.DecodeJSON(&bundle); err != nil {
+		return nil, errutil.InternalError{Err: fmt.Sprintf("unable to decode local CA certificate/key: %v", err)}
+	}
+
+	parsedBundle, err := bundle.ToParsedCertBundle()
+	if err != nil {
+		return nil, errutil.InternalError{Err: err.Error()}
+	}
+
+	if parsedBundle.Certificate == nil {
+		return nil, errutil.InternalError{Err: "stored CA information not able to be parsed"}
+	}
+
+	caInfo := &certutil.CAInfoBundle{*parsedBundle, nil}
+
+	entries, err := pki.GetURLs(ctx, req)
+	if err != nil {
+		return nil, errutil.InternalError{Err: fmt.Sprintf("unable to fetch URL information: %v", err)}
+	}
+	if entries == nil {
+		entries = &certutil.URLEntries{
+			IssuingCertificates:   []string{},
+			CRLDistributionPoints: []string{},
+			OCSPServers:           []string{},
+		}
+	}
+	caInfo.URLs = entries
+
+	return caInfo, nil
+}
+
+// N.B.: This is only meant to be used for generating intermediate CAs.
+// It skips some sanity checks.
+func generateIntermediateCSR(b *HsmPkiBackend, input *pki.InputBundleA) (*certutil.ParsedCSRBundle, error) {
+	creation, err := pki.GenerateConvertedCreationBundle(&b.pkiBackend.Backend, input, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	if creation.Params == nil {
+		return nil, errutil.InternalError{Err: "nil parameters received from parameter bundle generation"}
+	}
+
+	addBasicConstraints := input.ApiData != nil && input.ApiData.Get("add_basic_constraints").(bool)
+	parsedBundle, err := CreateCSR(b, creation, addBasicConstraints)
+	if err != nil {
+		return nil, err
+	}
+
+	return parsedBundle, nil
+}
+
 func signCert(b *HsmPkiBackend,
 	data *pki.InputBundleA,
 	caSign *certutil.CAInfoBundle,

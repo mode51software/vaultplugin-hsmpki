@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/hashicorp/vault/sdk/framework"
+	"github.com/hashicorp/vault/sdk/helper/certutil"
 	"github.com/hashicorp/vault/sdk/logical"
 )
 
@@ -48,6 +49,20 @@ func (b *HsmPkiBackend) loadCAKeyAlias(ctx context.Context, storage logical.Stor
 		return nil, err
 	}
 	return caKeyAlias, nil
+}
+
+func (b *HsmPkiBackend) saveCAKeyAlias(ctx context.Context, storage logical.Storage, caKeyAlias *string) error {
+	cb := &certutil.CertBundle{}
+	entry, err := logical.StorageEntryJSON("config/ca_bundle", cb)
+	if err != nil {
+		return err
+	}
+	entry.Key = PATH_CAKEYALIAS
+	entry.Value = []byte(*caKeyAlias)
+	if err := storage.Put(ctx, entry); err != nil {
+		return err
+	}
+	return nil
 }
 
 const pathFetchCAKeyAliasHelpSyn = `
