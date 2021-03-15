@@ -70,14 +70,14 @@ func testConnectPkcs11Connection(t *testing.T, integraTest *testEnv) {
 	}
 }
 
-// populate the /cert/ca_key_alias path with test data
+// populate the /cert/ca_keylabel path with test data
 func TestPathSetFetchCAKeyLabel(t *testing.T) {
 	integraTest, err := newIntegrationTestEnv()
 	if err != nil {
 		t.Fatal(err)
 	}
 	entry := logical.StorageEntry{}
-	entry.Key = PATH_CAKEYALIAS
+	entry.Key = PATH_CAKEYLABEL
 	entry.Value = []byte("testlabel")
 
 	if err = integraTest.HsmPkiBackend.storeEntry(integraTest.Context, &entry, &integraTest.Storage); err != nil {

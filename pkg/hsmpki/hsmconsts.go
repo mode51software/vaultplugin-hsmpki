@@ -2,7 +2,7 @@ package hsmpki
 
 const (
 	PATH_CA                    = "ca"
-	PATH_CAKEYALIAS            = "cert/ca_keyalias"
+	PATH_CAKEYLABEL            = "cert/ca_keylabel"
 	PATH_CERTS                 = "certs/"
 	PATH_ROLE                  = "role/"
 	PATH_SETSIGNEDINTERMEDIATE = "intermediate/set-signed"
@@ -19,7 +19,7 @@ const (
 	PATH_HASHALGO = "hash_algo"
 
 	FIELD_ROLE                = "role"
-	FIELD_KEYALIAS            = "key_alias"
+	FIELD_KEYALIAS            = "key_label"
 	FIELD_HASHALGO            = "hash_algo"
 	FIELD_COMMON_NAME         = "common_name"
 	FIELD_TYPE                = "type"

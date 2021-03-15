@@ -11,7 +11,7 @@ import (
 // This returns the currently configured key alias that corresponds to the Intermediate CA's private key in the HSM
 func pathFetchCAKeyAlias(b *HsmPkiBackend) *framework.Path {
 	return &framework.Path{
-		Pattern: PATH_CAKEYALIAS,
+		Pattern: PATH_CAKEYLABEL,
 
 		Callbacks: map[logical.Operation]framework.OperationFunc{
 			logical.ReadOperation: b.pathFetchCAKeyAlias,
@@ -44,7 +44,7 @@ func (b *HsmPkiBackend) pathFetchCAKeyAlias(ctx context.Context, req *logical.Re
 }
 
 func (b *HsmPkiBackend) loadCAKeyAlias(ctx context.Context, storage logical.Storage) (*logical.StorageEntry, error) {
-	caKeyAlias, err := storage.Get(ctx, PATH_CAKEYALIAS)
+	caKeyAlias, err := storage.Get(ctx, PATH_CAKEYLABEL)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +57,7 @@ func (b *HsmPkiBackend) saveCAKeyAlias(ctx context.Context, storage logical.Stor
 	if err != nil {
 		return err
 	}
-	entry.Key = PATH_CAKEYALIAS
+	entry.Key = PATH_CAKEYLABEL
 	entry.Value = []byte(*caKeyAlias)
 	if err := storage.Put(ctx, entry); err != nil {
 		return err
