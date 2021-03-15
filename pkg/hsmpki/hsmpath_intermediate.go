@@ -3,6 +3,8 @@ package hsmpki
 import (
 	"context"
 	"crypto"
+	"encoding/base64"
+	"fmt"
 	"github.com/hashicorp/errwrap"
 	"github.com/hashicorp/vault/sdk/framework"
 	"github.com/hashicorp/vault/sdk/helper/certutil"
@@ -11,6 +13,31 @@ import (
 	"github.com/mode51software/vaultplugin-hsmpki/pkg/pki"
 	"strings"
 )
+
+func pathGenerateIntermediate(b *HsmPkiBackend) *framework.Path {
+	ret := &framework.Path{
+		Pattern: "intermediate/generate/" + framework.GenericNameRegex("exported"),
+
+		Callbacks: map[logical.Operation]framework.OperationFunc{
+			logical.UpdateOperation: b.pathGenerateIntermediate,
+		},
+
+		HelpSynopsis:    pathGenerateIntermediateHelpSyn,
+		HelpDescription: pathGenerateIntermediateHelpDesc,
+	}
+
+	ret.Fields = pki.AddCACommonFields(map[string]*framework.FieldSchema{})
+	ret.Fields = pki.AddCAKeyGenerationFields(ret.Fields)
+	ret.Fields["add_basic_constraints"] = &framework.FieldSchema{
+		Type: framework.TypeBool,
+		Description: `Whether to add a Basic Constraints
+extension with CA: true. Only needed as a
+workaround in some compatibility scenarios
+with Active Directory Certificate Services.`,
+	}
+
+	return ret
+}
 
 func pathSetSignedIntermediate(b *HsmPkiBackend) *framework.Path {
 	ret := &framework.Path{
@@ -51,6 +78,90 @@ For RSA and ECDSA the options are SHA-256, SHA-384 or SHA-512.
 	}
 
 	return ret
+}
+
+func (b *HsmPkiBackend) pathGenerateIntermediate(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	var err error
+
+	exported, format, role, errorResp := b.getGenerationParams(data)
+	if errorResp != nil {
+		return errorResp, nil
+	}
+
+	var resp *logical.Response
+	input := &pki.InputBundleA{
+		Role:    role,
+		Req:     req,
+		ApiData: data,
+	}
+	parsedBundle, err := generateIntermediateCSR(b, input)
+	if err != nil {
+		switch err.(type) {
+		case errutil.UserError:
+			return logical.ErrorResponse(err.Error()), nil
+		case errutil.InternalError:
+			return logical.ErrorResponse(err.Error()), nil
+		default:
+			return nil, err
+		}
+	}
+
+	csrb, err := parsedBundle.ToCSRBundle()
+	if err != nil {
+		return nil, errwrap.Wrapf("error converting raw CSR bundle to CSR bundle: {{err}}", err)
+	}
+
+	resp = &logical.Response{
+		Data: map[string]interface{}{},
+	}
+
+	switch format {
+	case "pem":
+		resp.Data["csr"] = csrb.CSR
+		if exported {
+			resp.Data["private_key"] = csrb.PrivateKey
+			resp.Data["private_key_type"] = csrb.PrivateKeyType
+		}
+
+	case "pem_bundle":
+		resp.Data["csr"] = csrb.CSR
+		if exported {
+			resp.Data["csr"] = fmt.Sprintf("%s\n%s", csrb.PrivateKey, csrb.CSR)
+			resp.Data["private_key"] = csrb.PrivateKey
+			resp.Data["private_key_type"] = csrb.PrivateKeyType
+		}
+
+	case "der":
+		resp.Data["csr"] = base64.StdEncoding.EncodeToString(parsedBundle.CSRBytes)
+		if exported {
+			resp.Data["private_key"] = base64.StdEncoding.EncodeToString(parsedBundle.PrivateKeyBytes)
+			resp.Data["private_key_type"] = csrb.PrivateKeyType
+		}
+	}
+
+	resp.Data[FIELD_KEYALIAS] = b.cachedCAConfig.caKeyAlias
+
+	/*	if data.Get("private_key_format").(string) == "pkcs8" {
+			err = convertRespToPKCS8(resp)
+			if err != nil {
+				return nil, err
+			}
+		}
+	*/
+	cb := &certutil.CertBundle{}
+	//	cb.PrivateKey = csrb.PrivateKey
+	//	cb.PrivateKeyType = csrb.PrivateKeyType
+
+	entry, err := logical.StorageEntryJSON(CA_BUNDLE, cb)
+	if err != nil {
+		return nil, err
+	}
+	err = req.Storage.Put(ctx, entry)
+	if err != nil {
+		return nil, err
+	}
+
+	return resp, nil
 }
 
 func (b *HsmPkiBackend) pathSetSignedIntermediate(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
@@ -96,7 +207,7 @@ func (b *HsmPkiBackend) pathSetSignedIntermediate(ctx context.Context, req *logi
 		return nil, errwrap.Wrapf("error converting raw values into cert bundle: {{err}}", err)
 	}
 
-	entry, err := logical.StorageEntryJSON("config/ca_bundle", cb)
+	entry, err := logical.StorageEntryJSON(CA_BUNDLE, cb)
 	if err != nil {
 		return nil, err
 	}
@@ -180,6 +291,14 @@ func (b *HsmPkiBackend) storeEntry(ctx context.Context, entry *logical.StorageEn
 	}
 	return nil
 }
+
+const pathGenerateIntermediateHelpSyn = `
+Generate a new CSR and private key used for signing.
+`
+
+const pathGenerateIntermediateHelpDesc = `
+See the API documentation for more information.
+`
 
 const pathSetSignedIntermediateHelpSyn = `
 Provide the signed intermediate CA cert.

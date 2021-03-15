@@ -2,17 +2,157 @@ package hsmpki
 
 import (
 	"bytes"
+	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/sha1"
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/asn1"
 	"fmt"
 	"github.com/hashicorp/errwrap"
 	"github.com/hashicorp/vault/sdk/helper/certutil"
 	"github.com/hashicorp/vault/sdk/helper/errutil"
+	"github.com/miekg/pkcs11"
 	"github.com/mode51software/pkcs11helper/pkg/pkcs11client"
 	"time"
 )
+
+/*
+// GeneratePrivateKey generates a private key with the specified type and key bits
+func GeneratePrivateKey(keyType string, keyBits int, container certutil.ParsedPrivateKeyContainer) error {
+	var err error
+	var privateKeyType certutil.PrivateKeyType
+	var privateKeyBytes []byte
+	var privateKey crypto.Signer
+
+	switch keyType {
+	case "rsa":
+		privateKeyType = RSAPrivateKey
+		privateKey, err = rsa.GenerateKey(rand.Reader, keyBits)
+		if err != nil {
+			return errutil.InternalError{Err: fmt.Sprintf("error generating RSA private key: %v", err)}
+		}
+		privateKeyBytes = x509.MarshalPKCS1PrivateKey(privateKey.(*rsa.PrivateKey))
+	case "ec":
+		privateKeyType = ECPrivateKey
+		var curve elliptic.Curve
+		switch keyBits {
+		case 224:
+			curve = elliptic.P224()
+		case 256:
+			curve = elliptic.P256()
+		case 384:
+			curve = elliptic.P384()
+		case 521:
+			curve = elliptic.P521()
+		default:
+			return errutil.UserError{Err: fmt.Sprintf("unsupported bit length for EC key: %d", keyBits)}
+		}
+		privateKey, err = ecdsa.GenerateKey(curve, rand.Reader)
+		if err != nil {
+			return errutil.InternalError{Err: fmt.Sprintf("error generating EC private key: %v", err)}
+		}
+		privateKeyBytes, err = x509.MarshalECPrivateKey(privateKey.(*ecdsa.PrivateKey))
+		if err != nil {
+			return errutil.InternalError{Err: fmt.Sprintf("error marshalling EC private key: %v", err)}
+		}
+	default:
+		return errutil.UserError{Err: fmt.Sprintf("unknown key type: %s", keyType)}
+	}
+
+	container.SetParsedPrivateKey(privateKey, privateKeyType, privateKeyBytes)
+	return nil
+}
+*/
+// Creates a CSR. This is currently only meant for use when
+// generating an intermediate certificate.
+func CreateCSR(b *HsmPkiBackend, data *certutil.CreationBundle, addBasicConstraints bool) (*certutil.ParsedCSRBundle, error) {
+	var err error
+	result := &certutil.ParsedCSRBundle{}
+
+	if len(b.cachedCAConfig.caKeyAlias) == 0 {
+		keyLabel := "INCA" + GenDateTimeKeyLabel()
+		if err = b.saveCAKeyAlias(context.Background(), b.pkiBackend.GetStorage(), &keyLabel); err != nil {
+			return nil, errutil.InternalError{err.Error()}
+		}
+		b.cachedCAConfig.caKeyAlias = keyLabel
+	}
+
+	keyConfig := pkcs11client.KeyConfig{Label: b.cachedCAConfig.caKeyAlias, Id: []byte{59}, Type: pkcs11.CKK_EC, KeyBits: 521}
+
+	// if the key already exists, carry on so we can generate a new CSR
+	if err = b.pkcs11client.CheckExistsOkCreateKeyPair(&keyConfig); err != nil {
+		return nil, errutil.UserError{Err: errwrap.Wrapf("Error creating HSM private key {{err}}", err).Error()}
+	}
+
+	publicKey, err := b.pkcs11client.ReadPublicKey(&keyConfig, keyConfig.Type)
+
+	//result.SetParsedPrivateKey(privateKey, privateKeyType, privateKeyBytes)
+
+	/*	if err := generatePrivateKey(data.Params.KeyType,
+			data.Params.KeyBits,
+			result); err != nil {
+			return nil, err
+		}
+	*/
+	// Like many root CAs, other information is ignored
+	csrTemplate := &x509.CertificateRequest{
+		Subject:        data.Params.Subject,
+		DNSNames:       data.Params.DNSNames,
+		EmailAddresses: data.Params.EmailAddresses,
+		IPAddresses:    data.Params.IPAddresses,
+		URIs:           data.Params.URIs,
+	}
+
+	if err := certutil.HandleOtherCSRSANs(csrTemplate, data.Params.OtherSANs); err != nil {
+		return nil, errutil.InternalError{Err: errwrap.Wrapf("error marshaling other SANs: {{err}}", err).Error()}
+	}
+
+	if addBasicConstraints {
+		type basicConstraints struct {
+			IsCA       bool `asn1:"optional"`
+			MaxPathLen int  `asn1:"optional,default:-1"`
+		}
+		val, err := asn1.Marshal(basicConstraints{IsCA: true, MaxPathLen: -1})
+		if err != nil {
+			return nil, errutil.InternalError{Err: errwrap.Wrapf("error marshaling basic constraints: {{err}}", err).Error()}
+		}
+		ext := pkix.Extension{
+			Id:       oidExtensionBasicConstraints,
+			Value:    val,
+			Critical: true,
+		}
+		csrTemplate.ExtraExtensions = append(csrTemplate.ExtraExtensions, ext)
+	}
+
+	switch data.Params.KeyType {
+	case "rsa":
+		csrTemplate.SignatureAlgorithm = x509.SHA256WithRSA
+	case "ec":
+		csrTemplate.SignatureAlgorithm = x509.ECDSAWithSHA256
+	}
+
+	var caSigner pkcs11client.HsmSigner
+	caSigner.KeyConfig.Label = b.cachedCAConfig.caKeyAlias
+	caSigner.KeyConfig.Type = pkcs11.CKK_EC
+	caSigner.KeyConfig.KeyBits = 521
+	caSigner.Pkcs11Client = &b.pkcs11client
+	caSigner.PublicKey = publicKey //data.SigningBundle.Certificate.PublicKey
+
+	csr, err := x509.CreateCertificateRequest(rand.Reader, csrTemplate, caSigner)
+	if err != nil {
+		return nil, errutil.InternalError{Err: fmt.Sprintf("unable to create certificate: %s", err)}
+	}
+
+	result.CSRBytes = csr
+	result.CSR, err = x509.ParseCertificateRequest(csr)
+	if err != nil {
+		return nil, errutil.InternalError{Err: fmt.Sprintf("unable to parse created certificate: %v", err)}
+	}
+
+	return result, nil
+}
 
 // Performs the heavy lifting of generating a certificate from a CSR.
 // Returns a ParsedCertBundle sans private keys.
@@ -28,10 +168,10 @@ func SignCertificate(b *HsmPkiBackend, data *certutil.CreationBundle) (*certutil
 		return nil, errutil.UserError{Err: "nil csr given to signCertificate"}
 	}
 
-	err := data.CSR.CheckSignature()
+	/*err := data.CSR.CheckSignature()
 	if err != nil {
 		return nil, errutil.UserError{Err: "request signature invalid"}
-	}
+	}*/
 
 	result := &certutil.ParsedCertBundle{}
 
@@ -181,41 +321,75 @@ func CreateCertificate(b *HsmPkiBackend, data *certutil.CreationBundle) (*certut
 		return nil, err
 	}
 
-	if err := certutil.GeneratePrivateKey(data.Params.KeyType,
-		data.Params.KeyBits,
-		result); err != nil {
-		return nil, err
+	var subjKeyID []byte
+	var publicKey crypto.PublicKey // for CA gen
+
+	// non-CA private keys are generated in Vault, CAs generated in the HSM
+	if data.Params.IsCA {
+		if len(b.cachedCAConfig.caKeyAlias) == 0 {
+			// gen a new key label based on the curr time
+			keyLabel := "ROOTCA" + GenDateTimeKeyLabel()
+			b.cachedCAConfig.caKeyAlias = keyLabel
+			b.saveCAKeyAlias(context.Background(), b.pkiBackend.GetStorage(), &keyLabel)
+		}
+		keyConfig := &pkcs11client.KeyConfig{Label: b.cachedCAConfig.caKeyAlias, Id: []byte{43}, Type: pkcs11.CKK_EC, KeyBits: 521}
+		if err = b.pkcs11client.CheckExistsCreateKeyPair(keyConfig); err != nil {
+			return nil, errutil.UserError{err.Error()}
+		}
+		if subjKeyID, publicKey, err = b.pkcs11client.GetGenSubjectKeyId(keyConfig, pkcs11.CKK_EC); err != nil {
+			return nil, errutil.UserError{err.Error()}
+		}
+
+	} else {
+		if err = certutil.GeneratePrivateKey(data.Params.KeyType,
+			data.Params.KeyBits,
+			result); err != nil {
+			return nil, err
+		}
+		subjKeyID, err = certutil.GetSubjKeyID(result.PrivateKey)
 	}
 
-	subjKeyID, err := certutil.GetSubjKeyID(result.PrivateKey)
 	if err != nil {
 		return nil, errutil.InternalError{Err: fmt.Sprintf("error getting subject key ID: %s", err)}
 	}
 
 	certTemplate := &x509.Certificate{
-		SerialNumber:   serialNumber,
-		NotBefore:      time.Now().Add(-30 * time.Second),
-		NotAfter:       data.Params.NotAfter,
-		IsCA:           false,
-		SubjectKeyId:   subjKeyID,
-		Subject:        data.Params.Subject,
-		DNSNames:       data.Params.DNSNames,
-		EmailAddresses: data.Params.EmailAddresses,
-		IPAddresses:    data.Params.IPAddresses,
-		URIs:           data.Params.URIs,
+		SerialNumber: serialNumber,
+		NotBefore:    time.Now().Add(-30 * time.Second),
+		NotAfter:     data.Params.NotAfter,
+		//		IsCA:           false,
+		SubjectKeyId: subjKeyID,
+		Subject:      data.Params.Subject,
+		//		DNSNames:       data.Params.DNSNames,
+		//		EmailAddresses: data.Params.EmailAddresses,
+		//		IPAddresses:    data.Params.IPAddresses,
+		//		URIs:           data.Params.URIs,
 	}
 	if data.Params.NotBeforeDuration > 0 {
 		certTemplate.NotBefore = time.Now().Add(-1 * data.Params.NotBeforeDuration)
 	}
 
-	if err := certutil.HandleOtherSANs(certTemplate, data.Params.OtherSANs); err != nil {
-		return nil, errutil.InternalError{Err: errwrap.Wrapf("error marshaling other SANs: {{err}}", err).Error()}
+	if !data.Params.IsCA {
+		certTemplate.DNSNames = data.Params.DNSNames
+		certTemplate.EmailAddresses = data.Params.EmailAddresses
+		certTemplate.IPAddresses = data.Params.IPAddresses
+		certTemplate.URIs = data.Params.URIs
+		certTemplate.IsCA = false
+
+		if err := certutil.HandleOtherSANs(certTemplate, data.Params.OtherSANs); err != nil {
+			return nil, errutil.InternalError{Err: errwrap.Wrapf("error marshaling other SANs: {{err}}", err).Error()}
+		}
+	} else {
+		certTemplate.IsCA = true
+		data.Params.OtherSANs = nil
+		certTemplate.BasicConstraintsValid = true
+
 	}
 
 	// Add this before calling addKeyUsages
-	if data.SigningBundle == nil {
-		certTemplate.IsCA = true
-	} else if data.Params.BasicConstraintsValidForNonCA {
+	//if data.SigningBundle == nil {
+	//} else
+	if data.Params.BasicConstraintsValidForNonCA {
 		certTemplate.BasicConstraintsValid = true
 		certTemplate.IsCA = false
 	}
@@ -236,6 +410,11 @@ func CreateCertificate(b *HsmPkiBackend, data *certutil.CreationBundle) (*certut
 	certTemplate.CRLDistributionPoints = data.Params.URLs.CRLDistributionPoints
 	certTemplate.OCSPServer = data.Params.URLs.OCSPServers
 
+	//if data.Params.IsCA {
+	//	certTemplate.BasicConstraintsValid = true
+	//	certTemplate.IsCA = true
+	//}
+
 	var certBytes []byte
 	if data.SigningBundle != nil {
 
@@ -254,7 +433,20 @@ func CreateCertificate(b *HsmPkiBackend, data *certutil.CreationBundle) (*certut
 
 		certBytes, err = x509.CreateCertificate(rand.Reader, certTemplate, caCert, result.PrivateKey.Public(), caSigner) //data.SigningBundle.PrivateKey)
 	} else {
-		return nil, errutil.InternalError{Err: errwrap.Wrapf("Self-signed roots are unsupported", nil).Error()}
+
+		certTemplate.SignatureAlgorithm = selectHashAlgo(x509.ECDSA, b.cachedCAConfig.hashAlgo)
+		if certTemplate.SignatureAlgorithm == 0 {
+			return nil, errutil.InternalError{Err: errwrap.Wrapf("Unknown SignatureAlgorithm", nil).Error()}
+		}
+
+		var caSigner pkcs11client.HsmSigner
+		caSigner.KeyConfig.Label = b.cachedCAConfig.caKeyAlias
+		caSigner.Pkcs11Client = &b.pkcs11client
+		caSigner.PublicKey = publicKey
+
+		certBytes, err = x509.CreateCertificate(rand.Reader, certTemplate, certTemplate, caSigner.PublicKey, caSigner)
+
+		//		return nil, errutil.InternalError{Err: errwrap.Wrapf("Self-signed roots are unsupported", nil).Error()}
 	}
 
 	if err != nil {
