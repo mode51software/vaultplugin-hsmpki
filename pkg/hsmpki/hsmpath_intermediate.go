@@ -50,9 +50,9 @@ func pathSetSignedIntermediate(b *HsmPkiBackend) *framework.Path {
 certificate with a public key and a key alias that matches a private key in the HSM. 
 .`,
 			},
-			"key_alias": &framework.FieldSchema{
+			"key_label": &framework.FieldSchema{
 				Type: framework.TypeString,
-				Description: `The key alias of the private key in the HSM.
+				Description: `The key label of the private key in the HSM.
 Providing this will override the key alias that can be set in the configuration file.
 .`,
 			},
@@ -233,19 +233,21 @@ func (b *HsmPkiBackend) pathSetSignedIntermediate(ctx context.Context, req *logi
 	}
 
 	inCaKeyAlias := data.Get(FIELD_KEYALIAS).(string)
-	entry.Key = PATH_CAKEYALIAS
+	entry.Key = PATH_CAKEYLABEL
 
 	if inCaKeyAlias == "" {
-		// use the key label provided in the conf file
-		entry.Value = []byte(b.pkcs11client.HsmConfig.KeyLabel)
-		if err = b.storeEntry(ctx, entry, &req.Storage); err != nil {
-			return nil, err
+		// if a key alias has already been set by an auto generated CA cert then can skip
+		if len(b.cachedCAConfig.caKeyAlias) == 0 {
+			// use the key label provided in the conf file
+			entry.Value = []byte(b.pkcs11client.HsmConfig.KeyLabel)
+			if err = b.storeEntry(ctx, entry, &req.Storage); err != nil {
+				return nil, err
+			}
+			if len(b.pkcs11client.HsmConfig.KeyLabel) == 0 {
+				return nil, errwrap.Wrapf("Either set a key_label in the plugin's conf file or pass in an HSM key label using key_label", nil)
+			}
+			b.cachedCAConfig.caKeyAlias = b.pkcs11client.HsmConfig.KeyLabel
 		}
-		if len(b.pkcs11client.HsmConfig.KeyLabel) == 0 {
-			return nil, errwrap.Wrapf("Either set a key_label in the plugin's conf file or pass in an HSM key label using key_label", nil)
-		}
-		b.cachedCAConfig.caKeyAlias = b.pkcs11client.HsmConfig.KeyLabel
-
 	} else {
 
 		entry.Value = []byte(inCaKeyAlias)
