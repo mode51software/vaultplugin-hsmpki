@@ -55,5 +55,16 @@ pathrotatecrl:
 pathtidycrl:
 	go test -v -run TestPathTidyCRL ./pkg/hsmpki
 
+pathgenerateroot:
+	go test -v -run TestPathGenerateRoot ./pkg/hsmpki
+
+pathgenerateintermediate:
+	go test -v -run TestPathGenerateIntermediate ./pkg/hsmpki
+
+pathissue:
+	go test -v -run TestPathIssue ./pkg/hsmpki
+
+pathdeleteroot:
+	go test -v -run TestPathDeleteRoot ./pkg/hsmpki
 
 .PHONY: build clean fmt start enable

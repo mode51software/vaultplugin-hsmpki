@@ -3,7 +3,6 @@ package hsmpki
 import (
 	"context"
 	"github.com/hashicorp/vault/sdk/framework"
-	"github.com/hashicorp/vault/sdk/helper/certutil"
 	"github.com/hashicorp/vault/sdk/logical"
 	"github.com/mode51software/pkcs11helper/pkg/pkcs11client"
 	"github.com/mode51software/vaultplugin-hsmpki/pkg/pki"
@@ -92,7 +91,7 @@ func testFetchCAKeyLabel(t *testing.T, integraTest *testEnv) {
 
 	req := &logical.Request{
 		Operation: logical.ReadOperation,
-		Path:      PATH_CAKEYALIAS,
+		Path:      PATH_CAKEYLABEL,
 		Storage:   integraTest.Storage,
 	}
 
@@ -384,8 +383,8 @@ func testGenerateRoot(t *testing.T, integraTest *testEnv) {
 	}
 	data.Raw[FIELD_COMMON_NAME] = TEST_CAROOTCOMMONNAME
 	data.Raw[FIELD_EXPORTED] = TEST_EXPORTED
-	data.Raw[FIELD_KEY_TYPE] = TEST_CAKEYTYPE
-	data.Raw[FIELD_KEY_BITS] = TEST_CAKEYBITS
+	data.Raw[FIELD_KEY_TYPE] = TEST_CAKEYTYPERSA
+	data.Raw[FIELD_KEY_BITS] = TEST_CAKEYBITSRSA
 	//	data.Raw[FIELD_PERMITTED_DNS_NAMES] = TEST_CAPERMITTEDDNSDOMAINS
 	data.Raw[FIELD_ORGANIZATION] = TEST_CAORGANIZATION
 	data.Raw[FIELD_OU] = TEST_CAOU
@@ -398,7 +397,6 @@ func testGenerateRoot(t *testing.T, integraTest *testEnv) {
 	data.Raw[FIELD_TTL] = TEST_CATTL
 
 	//caKeyAlias := "ECTestCARootKey0017"
-
 	//integraTest.HsmPkiBackend.saveCAKeyAlias(context.Background(), integraTest.Storage, &caKeyAlias)
 	//integraTest.HsmPkiBackend.cachedCAConfig.caKeyAlias = caKeyAlias
 
@@ -443,8 +441,8 @@ func testGenerateIntermediate(t *testing.T, integraTest *testEnv) string {
 	}
 	data.Raw[FIELD_COMMON_NAME] = TEST_CAINTERCOMMONNAME
 	data.Raw[FIELD_EXPORTED] = TEST_EXPORTED
-	data.Raw[FIELD_KEY_TYPE] = TEST_CAKEYTYPE
-	data.Raw[FIELD_KEY_BITS] = TEST_CAKEYBITS
+	data.Raw[FIELD_KEY_TYPE] = TEST_CAKEYTYPEEC
+	data.Raw[FIELD_KEY_BITS] = TEST_CAKEYBITSEC
 	//	data.Raw[FIELD_PERMITTED_DNS_NAMES] = TEST_CAPERMITTEDDNSDOMAINS
 	data.Raw[FIELD_ORGANIZATION] = TEST_CAORGANIZATION
 	data.Raw[FIELD_OU] = TEST_CAOU
@@ -479,6 +477,7 @@ func testGenerateIntermediate(t *testing.T, integraTest *testEnv) string {
 
 }
 
+/*
 // sign intermediate needs a CSR as input that is to be signed with the RootCA
 // usually Generate Root will be run on mount path A, then Generate Intermediate on mount path B,
 // then Sign Intermediate on mount path A, followed by Set Signed Intermediate on mount path B
@@ -490,25 +489,6 @@ func TestPathSignIntermediate(t *testing.T) {
 	}
 
 	testConnectPkcs11Connection(t, integraTest)
-
-	/*	testGenerateRoot(t, integraTest)
-
-		bundleEntry, err := integraTest.Storage.Get(context.Background(), "config/rootca_bundle")
-		var bundle certutil.CertBundle
-		if err = bundleEntry.DecodeJSON(&bundle); err != nil {
-			return //, errutil.InternalError{Err: fmt.Sprintf("unable to decode local CA certificate/key: %v", err)}
-		}
-		t.Logf("bundle=%s", bundle.Certificate)
-
-		csr := testGenerateIntermediate(t, integraTest)
-
-		bundleEntry2, err := integraTest.Storage.Get(context.Background(), CA_BUNDLE)
-		var bundle2 certutil.CertBundle
-		if err = bundleEntry2.DecodeJSON(&bundle2); err != nil {
-			return //, errutil.InternalError{Err: fmt.Sprintf("unable to decode local CA certificate/key: %v", err)}
-		}
-		t.Logf("bundle2=%s", bundle2.Certificate)
-	*/
 
 	rootCACert, err := pkcs11client.LoadFromFileAsString(TEST_ROOTCACERTFILE)
 	cb := &certutil.CertBundle{}
@@ -543,8 +523,8 @@ func testSignIntermediate(t *testing.T, integraTest *testEnv, csr *string) {
 	}
 	data.Raw[FIELD_COMMON_NAME] = TEST_CAINTERCOMMONNAME
 	data.Raw[FIELD_EXPORTED] = TEST_EXPORTED
-	data.Raw[FIELD_KEY_TYPE] = TEST_CAKEYTYPE
-	data.Raw[FIELD_KEY_BITS] = TEST_CAKEYBITS
+	data.Raw[FIELD_KEY_TYPE] = TEST_CAKEYTYPEEC
+	data.Raw[FIELD_KEY_BITS] = TEST_CAKEYBITSEC
 	//	data.Raw[FIELD_PERMITTED_DNS_NAMES] = TEST_CAPERMITTEDDNSDOMAINS
 	data.Raw[FIELD_ORGANIZATION] = TEST_CAORGANIZATION
 	data.Raw[FIELD_OU] = []string{TEST_CAOU}
@@ -630,8 +610,8 @@ func testIssue(t *testing.T, integraTest *testEnv) {
 		t.Logf("Issue succeeded: %s", response.Data["certificate"])
 	}
 }
-
-/*func TestGenerateAll(t *testing.T) {
+*/
+func TestPathDeleteRoot(t *testing.T) {
 
 	integraTest, err := newIntegrationTestEnv()
 	if err != nil {
@@ -640,7 +620,23 @@ func testIssue(t *testing.T, integraTest *testEnv) {
 
 	testConnectPkcs11Connection(t, integraTest)
 	testGenerateRoot(t, integraTest)
-	csr := testGenerateIntermediate(t, integraTest)
-	testSignIntermediate(t, integraTest, &csr)
-	testPathI
-}*/
+	testDeleteRoot(t, integraTest)
+}
+
+func testDeleteRoot(t *testing.T, integraTest *testEnv) {
+	req := &logical.Request{
+		Operation: logical.DeleteOperation,
+		Path:      PATH_ROOT,
+		Storage:   integraTest.Storage,
+	}
+	if response, err := integraTest.HsmPkiBackend.pathCADeleteRoot(integraTest.Context, req, nil); err != nil || response.Error() != nil {
+		if err != nil {
+			t.Error(err)
+		} else if response.Error() != nil {
+			t.Error(response.Error())
+		}
+	} else {
+		t.Logf("Delete CA succeeded: %s", integraTest.HsmPkiBackend.cachedCAConfig.caKeyAlias)
+	}
+
+}

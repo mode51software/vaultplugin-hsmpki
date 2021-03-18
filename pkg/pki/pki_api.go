@@ -111,6 +111,10 @@ func PathConfigCRL(b *backend) *framework.Path {
 	return pathConfigCRL(b)
 }
 
+func PathConfigURLs(b *backend) *framework.Path {
+	return pathConfigURLs(b)
+}
+
 func (b *backend) PathCRLWrite(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
 	return b.pathCRLWrite(ctx, req, d)
 }

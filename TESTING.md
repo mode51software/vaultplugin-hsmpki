@@ -8,7 +8,7 @@ If you want to run tests in an IDE then source DPoD in a shell and start the IDE
 
 ## Makefile Command Line Tests
 
-Test the HSM connection where the conf is loaded in from conf/config-hsm.hcl
+Test the HSM connection where the conf is loaded in from conf/config-safenet.hcl
 
 `make test hsmconnection`
 
@@ -19,3 +19,9 @@ Test the HSM connection where the conf is loaded in from conf/config-hsm.hcl
 `make test pathfetchcrl`
 
 `make test pathsetsignedintermediate`
+
+`make test pathgenerateroot`
+
+`make test pathgenerateintermediate`
+
+`make test pathdeleteroot`

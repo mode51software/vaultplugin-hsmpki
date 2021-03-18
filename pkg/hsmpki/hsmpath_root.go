@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
+	"github.com/mode51software/pkcs11helper/pkg/pkcs11client"
 	"github.com/mode51software/vaultplugin-hsmpki/pkg/pki"
 	"reflect"
 	"strings"
@@ -115,11 +116,25 @@ func pathSignSelfIssued(b *HsmPkiBackend) *framework.Path {
 }
 
 func (b *HsmPkiBackend) pathCADeleteRoot(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	return nil, req.Storage.Delete(ctx, "config/rootca_bundle")
+
+	if len(b.cachedCAConfig.caKeyAlias) > 0 {
+
+		keyConfig := pkcs11client.KeyConfig{Label: b.cachedCAConfig.caKeyAlias}
+
+		if err := b.pkcs11client.DeleteKeyPair(&keyConfig); err != nil {
+			return nil, errutil.UserError{"Unable to delete CA #{{err}}"}
+		}
+
+	}
+	return nil, req.Storage.Delete(ctx, CA_BUNDLE)
 }
 
 func (b *HsmPkiBackend) pathCAGenerateRoot(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	var err error
+
+	if err = b.checkPkcs11ConnectionSync(); err != nil {
+		return nil, err
+	}
 
 	entry, err := req.Storage.Get(ctx, CA_BUNDLE)
 	if err != nil {
@@ -237,7 +252,7 @@ func (b *HsmPkiBackend) pathCAGenerateRoot(ctx context.Context, req *logical.Req
 	}
 
 	// Build a fresh CRL
-	//err = buildCRL(ctx, b, req, true)
+	err = buildCRL(ctx, b, req, true)
 	if err != nil {
 		return nil, err
 	}

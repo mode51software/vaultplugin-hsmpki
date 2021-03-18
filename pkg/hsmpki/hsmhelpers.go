@@ -79,7 +79,11 @@ func CreateCSR(b *HsmPkiBackend, data *certutil.CreationBundle, addBasicConstrai
 		b.cachedCAConfig.caKeyAlias = keyLabel
 	}
 
-	keyConfig := pkcs11client.KeyConfig{Label: b.cachedCAConfig.caKeyAlias, Id: []byte{59}, Type: pkcs11.CKK_EC, KeyBits: 521}
+	keyType, err := GetDataKeyType(&data.Params.KeyType)
+	if err != nil {
+		return nil, err
+	}
+	keyConfig := pkcs11client.KeyConfig{Label: b.cachedCAConfig.caKeyAlias, Id: []byte{59}, Type: keyType, KeyBits: data.Params.KeyBits}
 
 	// if the key already exists, carry on so we can generate a new CSR
 	if err = b.pkcs11client.CheckExistsOkCreateKeyPair(&keyConfig); err != nil {
@@ -133,6 +137,7 @@ func CreateCSR(b *HsmPkiBackend, data *certutil.CreationBundle, addBasicConstrai
 		csrTemplate.SignatureAlgorithm = x509.ECDSAWithSHA256
 	}
 
+	// we can choose the signing type internally here
 	var caSigner pkcs11client.HsmSigner
 	caSigner.KeyConfig.Label = b.cachedCAConfig.caKeyAlias
 	caSigner.KeyConfig.Type = pkcs11.CKK_EC
@@ -273,25 +278,22 @@ func SignCertificate(b *HsmPkiBackend, data *certutil.CreationBundle) (*certutil
 	caSigner.Pkcs11Client = &b.pkcs11client
 	caSigner.PublicKey = data.SigningBundle.Certificate.PublicKey
 
-	//pubKey, err := b.pkcs11client.ReadECPublicKey(&caSigner.KeyConfig)
-	//caSigner.PublicKey = pubKey
-
 	b.pkcs11client.Pkcs11Mutex.Lock()
 
 	certBytes, err = x509.CreateCertificate(rand.Reader, certTemplate, caCert, data.CSR.PublicKey, caSigner)
 
 	// whilst the Pkcs11Client is locked, the last error and code can be used
 
-	if b.pkcs11client.LastErrCode == pkcs11client.PKCS11ERR_READTIMEOUT {
-		b.pkiBackend.Backend.Logger().Info("pkcs11helper: Timeout processing PKCS#11 function")
-		b.checkPkcs11ConnectionFailed()
-	} else if b.pkcs11client.LastErrCode == pkcs11client.PKCS11ERR_GENERICERROR {
-		b.pkiBackend.Backend.Logger().Info("pkcs11helper: generic error")
-		// TODO: defend against deliberate errors which cause a reconnection attempt
-		b.checkPkcs11ConnectionFailed()
-	} else if b.pkcs11client.LastErrCode == 0 {
-		b.pkiBackend.Backend.Logger().Info("pkcs11helper: no error")
-	}
+	/*	if b.pkcs11client.LastErrCode == pkcs11client.PKCS11ERR_READTIMEOUT {
+			b.pkiBackend.Backend.Logger().Info("pkcs11helper: Timeout processing PKCS#11 function")
+			b.checkPkcs11ConnectionFailed()
+		} else if b.pkcs11client.LastErrCode == pkcs11client.PKCS11ERR_GENERICERROR {
+			b.pkiBackend.Backend.Logger().Info("pkcs11helper: generic error")
+			// TODO: defend against deliberate errors which cause a reconnection attempt
+			b.checkPkcs11ConnectionFailed()
+		} else if b.pkcs11client.LastErrCode == 0 {
+			b.pkiBackend.Backend.Logger().Info("pkcs11helper: no error")
+		}*/
 
 	b.pkcs11client.Pkcs11Mutex.Unlock() // unlock asap rather than have deferred
 
@@ -332,11 +334,17 @@ func CreateCertificate(b *HsmPkiBackend, data *certutil.CreationBundle) (*certut
 			b.cachedCAConfig.caKeyAlias = keyLabel
 			b.saveCAKeyAlias(context.Background(), b.pkiBackend.GetStorage(), &keyLabel)
 		}
-		keyConfig := &pkcs11client.KeyConfig{Label: b.cachedCAConfig.caKeyAlias, Id: []byte{43}, Type: pkcs11.CKK_EC, KeyBits: 521}
+
+		keyType, err := GetDataKeyType(&data.Params.KeyType)
+		if err != nil {
+			return nil, err
+		}
+
+		keyConfig := &pkcs11client.KeyConfig{Label: b.cachedCAConfig.caKeyAlias, Type: keyType, KeyBits: data.Params.KeyBits}
 		if err = b.pkcs11client.CheckExistsCreateKeyPair(keyConfig); err != nil {
 			return nil, errutil.UserError{err.Error()}
 		}
-		if subjKeyID, publicKey, err = b.pkcs11client.GetGenSubjectKeyId(keyConfig, pkcs11.CKK_EC); err != nil {
+		if subjKeyID, publicKey, err = b.pkcs11client.GetGenSubjectKeyId(keyConfig, keyType); err != nil {
 			return nil, errutil.UserError{err.Error()}
 		}
 
@@ -360,10 +368,6 @@ func CreateCertificate(b *HsmPkiBackend, data *certutil.CreationBundle) (*certut
 		//		IsCA:           false,
 		SubjectKeyId: subjKeyID,
 		Subject:      data.Params.Subject,
-		//		DNSNames:       data.Params.DNSNames,
-		//		EmailAddresses: data.Params.EmailAddresses,
-		//		IPAddresses:    data.Params.IPAddresses,
-		//		URIs:           data.Params.URIs,
 	}
 	if data.Params.NotBeforeDuration > 0 {
 		certTemplate.NotBefore = time.Now().Add(-1 * data.Params.NotBeforeDuration)
@@ -387,8 +391,6 @@ func CreateCertificate(b *HsmPkiBackend, data *certutil.CreationBundle) (*certut
 	}
 
 	// Add this before calling addKeyUsages
-	//if data.SigningBundle == nil {
-	//} else
 	if data.Params.BasicConstraintsValidForNonCA {
 		certTemplate.BasicConstraintsValid = true
 		certTemplate.IsCA = false
@@ -410,11 +412,6 @@ func CreateCertificate(b *HsmPkiBackend, data *certutil.CreationBundle) (*certut
 	certTemplate.CRLDistributionPoints = data.Params.URLs.CRLDistributionPoints
 	certTemplate.OCSPServer = data.Params.URLs.OCSPServers
 
-	//if data.Params.IsCA {
-	//	certTemplate.BasicConstraintsValid = true
-	//	certTemplate.IsCA = true
-	//}
-
 	var certBytes []byte
 	if data.SigningBundle != nil {
 
@@ -434,19 +431,23 @@ func CreateCertificate(b *HsmPkiBackend, data *certutil.CreationBundle) (*certut
 		certBytes, err = x509.CreateCertificate(rand.Reader, certTemplate, caCert, result.PrivateKey.Public(), caSigner) //data.SigningBundle.PrivateKey)
 	} else {
 
-		certTemplate.SignatureAlgorithm = selectHashAlgo(x509.ECDSA, b.cachedCAConfig.hashAlgo)
-		if certTemplate.SignatureAlgorithm == 0 {
-			return nil, errutil.InternalError{Err: errwrap.Wrapf("Unknown SignatureAlgorithm", nil).Error()}
+		if keyType, err := pkcs11client.GetPubKeyType(publicKey); err != nil {
+			return nil, errutil.InternalError{Err: errwrap.Wrapf("Unsupported PublicKeyAlgorithm", nil).Error()}
+		} else {
+			certTemplate.SignatureAlgorithm = selectHashAlgo(keyType, b.cachedCAConfig.hashAlgo)
+			if certTemplate.SignatureAlgorithm == 0 {
+				return nil, errutil.InternalError{Err: errwrap.Wrapf("Unknown SignatureAlgorithm", nil).Error()}
+			}
+
+			var caSigner pkcs11client.HsmSigner
+			caSigner.KeyConfig.Label = b.cachedCAConfig.caKeyAlias
+			caSigner.Pkcs11Client = &b.pkcs11client
+			caSigner.PublicKey = publicKey
+
+			certBytes, err = x509.CreateCertificate(rand.Reader, certTemplate, certTemplate, caSigner.PublicKey, caSigner)
+
+			//		return nil, errutil.InternalError{Err: errwrap.Wrapf("Self-signed roots are unsupported", nil).Error()}
 		}
-
-		var caSigner pkcs11client.HsmSigner
-		caSigner.KeyConfig.Label = b.cachedCAConfig.caKeyAlias
-		caSigner.Pkcs11Client = &b.pkcs11client
-		caSigner.PublicKey = publicKey
-
-		certBytes, err = x509.CreateCertificate(rand.Reader, certTemplate, certTemplate, caSigner.PublicKey, caSigner)
-
-		//		return nil, errutil.InternalError{Err: errwrap.Wrapf("Self-signed roots are unsupported", nil).Error()}
 	}
 
 	if err != nil {
@@ -510,4 +511,16 @@ func selectHashAlgo(pubKeyAlgo x509.PublicKeyAlgorithm, cachedHashAlgo crypto.Ha
 		return 0
 
 	}
+}
+
+func GetDataKeyType(data *string) (keyType uint, err error) {
+	switch *data {
+	case "rsa":
+		keyType = pkcs11.CKK_RSA
+	case "ec":
+		keyType = pkcs11.CKK_EC
+	default:
+		return 0, errutil.UserError{"Unsupported key type please specify rsa or ec"}
+	}
+	return
 }

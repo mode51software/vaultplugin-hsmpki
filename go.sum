@@ -243,8 +243,8 @@ github.com/mitchellh/mapstructure v1.3.3/go.mod h1:bFUtVrKA4DC2yAKiSyO/QUcy7e+RR
 github.com/mitchellh/reflectwalk v1.0.0/go.mod h1:mSTlrgnPZtwu0c4WaC2kGObEpuNDbx0jmZXqmk4esnw=
 github.com/mitchellh/reflectwalk v1.0.1 h1:FVzMWA5RllMAKIdUSC8mdWo3XtwoecrH79BY70sEEpE=
 github.com/mitchellh/reflectwalk v1.0.1/go.mod h1:mSTlrgnPZtwu0c4WaC2kGObEpuNDbx0jmZXqmk4esnw=
-github.com/mode51software/pkcs11helper v0.3.2 h1:FNCo8jeEOpq5d8kfpSKbMEZ5ft8el9+MmT1zQh0yPc8=
-github.com/mode51software/pkcs11helper v0.3.2/go.mod h1:kTP66TAfYMJTuND7oT1y4FWyTmAtkJh/b7QwtH1VOcI=
+github.com/mode51software/pkcs11helper v0.3.3 h1:ea11q6DrS8zmRXIst8W7Bs60WN9/ZSPSKyI/sfS1uVg=
+github.com/mode51software/pkcs11helper v0.3.3/go.mod h1:kTP66TAfYMJTuND7oT1y4FWyTmAtkJh/b7QwtH1VOcI=
 github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
 github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd h1:TRLaZ9cD/w8PVh93nsPXa1VrQ6jlwL5oN8l14QlcNfg=
 github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
