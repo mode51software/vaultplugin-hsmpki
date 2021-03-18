@@ -1,3 +1,9 @@
+## v0.3.3
+### 18/03/2021
+
+* Bugfix for key label in relation to persistent storage
+* pathSignVerbatim
+
 ## v0.3.2.beta.1
 ### 17/Mar/2021
 
