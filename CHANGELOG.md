@@ -1,3 +1,11 @@
+## v0.3.2.beta.1
+### 17/Mar/2021
+
+* Improved connection checks
+* RSA keys for Generate Root and Generate Intermediate (initially hard coded to EC)  
+* Remove hardcoded key types except for CSR gen as part of Generate Intermediate
+* Detect if in metamode on startup
+
 ## v0.3.1.beta.1
 ### 14/Mar/2021
 
