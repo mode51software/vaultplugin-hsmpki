@@ -51,7 +51,7 @@ Now open a new terminal window and login to Vault. This is an example for a dev 
 
 These instructions apply if the Intermediate CA has been created and signed by a Root CA externally to Vault.
 
-#####Enable the HSM PKI plugin:
+##### Enable the HSM PKI plugin:
 
 `vault secrets enable -path=hsmpki_inter -options="config=conf/config-softhsm.hcl" vaultplugin-hsmpki`
 
@@ -59,7 +59,7 @@ These instructions apply if the Intermediate CA has been created and signed by a
 
 These instructions apply if the Root and Intermediate CAs need to be created and signed by Vault.
 
-#####Enable the HSM PKI plugin paths:
+##### Enable the HSM PKI plugin paths:
 
 * Different configuration files can be passed to each instance of the plugin. 
 * These may contain alternative HSM slot and PIN settings.
@@ -216,7 +216,10 @@ View the [TESTING](TESTING.md) README
 
 ### Troubleshooting
 
-#### HSM error code 800000000
+#### SafeNet DPoD [Troubleshooting](https://thalesdocs.com/dpod/services/hsmod_services/hsmod_troubleshooting/index.html)
+
+##### HSM error code 0x80001604
+
 This may indicate that the SafeNet DPoD partition is full
 
 ## License
