@@ -9,7 +9,7 @@ import (
 )
 
 // This returns the currently configured key alias that corresponds to the Intermediate CA's private key in the HSM
-func pathFetchCAKeyAlias(b *HsmPkiBackend) *framework.Path {
+func pathFetchCAKeyLabel(b *HsmPkiBackend) *framework.Path {
 	return &framework.Path{
 		Pattern: PATH_CAKEYLABEL,
 

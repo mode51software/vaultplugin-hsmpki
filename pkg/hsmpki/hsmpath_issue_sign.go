@@ -94,7 +94,9 @@ func (b *HsmPkiBackend) pathSign(ctx context.Context, req *logical.Request, data
 
 func (b *HsmPkiBackend) pathIssueSignCert(ctx context.Context, req *logical.Request, data *framework.FieldData, role *pki.RoleEntry, useCSR, useCSRValues bool) (*logical.Response, error) {
 
-	b.checkPkcs11ConnectionSync()
+	if err := b.checkPkcs11ConnectionSync(); err != nil {
+		return nil, err
+	}
 
 	// If storing the certificate and on a performance standby, forward this request on to the primary
 	if !role.NoStore && b.pkiBackend.Backend.System().ReplicationState().HasState(consts.ReplicationPerformanceStandby) {

@@ -83,6 +83,10 @@ For RSA and ECDSA the options are SHA-256, SHA-384 or SHA-512.
 func (b *HsmPkiBackend) pathGenerateIntermediate(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	var err error
 
+	if err = b.checkPkcs11ConnectionSync(); err != nil {
+		return nil, err
+	}
+
 	exported, format, role, errorResp := b.getGenerationParams(data)
 	if errorResp != nil {
 		return errorResp, nil

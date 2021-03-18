@@ -196,7 +196,6 @@ func signCert(b *HsmPkiBackend,
 		creation.Params.PermittedDNSDomains = data.ApiData.Get("permitted_dns_domains").([]string)
 	}
 
-	//parsedBundle, err := certutil.SignCertificate(creation)
 	parsedBundle, err := SignCertificate(b, creation)
 
 	if err != nil {
