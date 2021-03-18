@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/hashicorp/vault/sdk/framework"
-	"github.com/hashicorp/vault/sdk/helper/certutil"
 	"github.com/hashicorp/vault/sdk/logical"
 )
 
@@ -44,22 +43,49 @@ func (b *HsmPkiBackend) pathFetchCAKeyAlias(ctx context.Context, req *logical.Re
 }
 
 func (b *HsmPkiBackend) loadCAKeyAlias(ctx context.Context, storage logical.Storage) (*logical.StorageEntry, error) {
-	caKeyAlias, err := storage.Get(ctx, PATH_CAKEYLABEL)
+	return b.loadCAKeyData(ctx, storage, PATH_CAKEYLABEL)
+}
+
+/*func (b *HsmPkiBackend) loadCAKeyType(ctx context.Context, storage logical.Storage) (*logical.StorageEntry, error) {
+	return b.loadCAKeyData(ctx, storage, PATH_CAKEYTYPE)
+}
+
+func (b *HsmPkiBackend) loadCAKeySize(ctx context.Context, storage logical.Storage) (*logical.StorageEntry, error) {
+	return b.loadCAKeyData(ctx, storage, PATH_CAKEYSIZE)
+}*/
+
+func (b *HsmPkiBackend) loadCAKeyData(ctx context.Context, storage logical.Storage, data string) (*logical.StorageEntry, error) {
+	caKeyAlias, err := storage.Get(ctx, data)
 	if err != nil {
 		return nil, err
 	}
 	return caKeyAlias, nil
 }
 
-func (b *HsmPkiBackend) saveCAKeyAlias(ctx context.Context, storage logical.Storage, caKeyAlias *string) error {
-	cb := &certutil.CertBundle{}
-	entry, err := logical.StorageEntryJSON("config/ca_bundle", cb)
-	if err != nil {
-		return err
+func (b *HsmPkiBackend) saveCAKeyData(ctx context.Context, storage logical.Storage,
+	caKeyAlias *string, caKeyType uint, caKeySize int) error {
+	return b.saveStoreData(ctx, storage, PATH_CAKEYLABEL, caKeyAlias)
+}
+
+func (b *HsmPkiBackend) saveCAKeyLabel(ctx context.Context, storage logical.Storage, caKeyAlias *string) error {
+	return b.saveStoreData(ctx, storage, PATH_CAKEYLABEL, caKeyAlias)
+}
+
+/*func (b *HsmPkiBackend) saveCAKeyType(ctx context.Context, storage logical.Storage, caKeyType uint) error {
+	return b.saveStoreData(ctx, storage, PATH_CAKEYTYPE, caKeyType)
+}
+
+func (b *HsmPkiBackend) saveCAKeySize(ctx context.Context, storage logical.Storage, caKeySize int) error {
+	return b.saveStoreData(ctx, storage, PATH_CAKEYSIZE, caKeySize)
+}*/
+
+func (b *HsmPkiBackend) saveStoreData(ctx context.Context, storage logical.Storage, path string, data *string) error {
+	entry := logical.StorageEntry{
+		Key:      path,
+		Value:    []byte(*data),
+		SealWrap: false,
 	}
-	entry.Key = PATH_CAKEYLABEL
-	entry.Value = []byte(*caKeyAlias)
-	if err := storage.Put(ctx, entry); err != nil {
+	if err := storage.Put(ctx, &entry); err != nil {
 		return err
 	}
 	return nil

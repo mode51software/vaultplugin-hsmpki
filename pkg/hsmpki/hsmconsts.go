@@ -3,6 +3,8 @@ package hsmpki
 const (
 	PATH_CA                    = "ca"
 	PATH_CAKEYLABEL            = "cert/ca_keylabel"
+	PATH_CAKEYTYPE             = "cert/ca_keytype"
+	PATH_CAKEYSIZE             = "cert/ca_keysize"
 	PATH_CERTS                 = "certs/"
 	PATH_ROLE                  = "role/"
 	PATH_SETSIGNEDINTERMEDIATE = "intermediate/set-signed"
@@ -50,6 +52,7 @@ const (
 	//ROOTCA_BUNDLE  = "config/rootca_bundle"
 	//INTERCA_BUNDLE = "config/ca_bundle"
 	CA_BUNDLE = "config/ca_bundle"
+	CA_TYPE   = "ca/catype"
 	// relative to test working directory in pkg/hsmpki
 	//TEST_CONFIG_HSM = "../../conf/config-softhsm.hcl"
 	TEST_CONFIG_HSM = "../../conf/config-safenet.hcl"
@@ -61,6 +64,7 @@ const (
 	TEST_TTL             = "1h"
 	TEST_COMMON_NAME     = "localhost"
 	TEST_ROLE_NAME       = "localhost"
+	TEST_KEY_LABEL       = "ECTestCAInterKey0016"
 	//TEST_SIGNEDCACERTFILE 	= "../../data/softhsm-inter-0002.ca.cert.pem"
 	TEST_SIGNEDCACERTFILE      = "../../data/safenet-inter-02.ca.cert.pem"
 	TEST_ROOTCACERTFILE        = "../../data/testrootca.cert.pem"

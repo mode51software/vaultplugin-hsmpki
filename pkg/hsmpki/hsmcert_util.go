@@ -20,17 +20,8 @@ type inputBundle struct {
 	apiData *framework.FieldData
 }
 
-/*func fetchRootCAInfo(ctx context.Context, req *logical.Request) (*certutil.CAInfoBundle, error) {
-	return fetchCAInfos(ctx, req, ROOTCA_BUNDLE)
-}
-
-func fetchInterCAInfo(ctx context.Context, req *logical.Request) (*certutil.CAInfoBundle, error) {
-	return fetchCAInfos(ctx, req, INTERCA_BUNDLE)
-}*/
-
 // Fetches the CA info. Unlike other certificates, the CA info is stored
 // in the backend as a CertBundle, because we are storing its private key
-//func fetchCAInfo(ctx context.Context, req *logical.Request, whichCA string) (*certutil.CAInfoBundle, error) {
 func fetchCAInfo(ctx context.Context, req *logical.Request) (*certutil.CAInfoBundle, error) {
 	bundleEntry, err := req.Storage.Get(ctx, CA_BUNDLE)
 	if err != nil {
