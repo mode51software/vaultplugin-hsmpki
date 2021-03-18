@@ -14,7 +14,7 @@ import (
 
 func pathRevoke(b *HsmPkiBackend) *framework.Path {
 	return &framework.Path{
-		Pattern: `revoke`,
+		Pattern: PATH_REVOKE,
 		Fields: map[string]*framework.FieldSchema{
 			"serial_number": &framework.FieldSchema{
 				Type: framework.TypeString,
@@ -34,7 +34,7 @@ hyphen-separated octal`,
 
 func pathRotateCRL(b *HsmPkiBackend) *framework.Path {
 	return &framework.Path{
-		Pattern: `crl/rotate`,
+		Pattern: PATH_ROTATECRL,
 
 		Callbacks: map[logical.Operation]framework.OperationFunc{
 			logical.ReadOperation: b.pathRotateCRLRead,
@@ -46,6 +46,11 @@ func pathRotateCRL(b *HsmPkiBackend) *framework.Path {
 }
 
 func (b *HsmPkiBackend) pathRevokeWrite(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+
+	if err := b.checkPkcs11ConnectionSync(); err != nil {
+		return nil, err
+	}
+
 	serial := data.Get("serial_number").(string)
 	if len(serial) == 0 {
 		return logical.ErrorResponse("The serial number must be provided"), nil
@@ -66,6 +71,11 @@ func (b *HsmPkiBackend) pathRevokeWrite(ctx context.Context, req *logical.Reques
 }
 
 func (b *HsmPkiBackend) pathRotateCRLRead(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+
+	if err := b.checkPkcs11ConnectionSync(); err != nil {
+		return nil, err
+	}
+
 	b.pkiBackend.GetRevokeStorageLock().RLock()
 	defer b.pkiBackend.GetRevokeStorageLock().RUnlock()
 

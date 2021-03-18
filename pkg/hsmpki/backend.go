@@ -29,6 +29,9 @@ type HsmPkiBackend struct {
 	cachedCAConfig cachedCAConfig // needs to be re-cached on startup
 	refreshMutex   sync.Mutex
 	store          map[string][]byte
+	connChannel    chan int
+	backendConfig  *logical.BackendConfig
+
 	// this is the same storage as in the pki Backend, so ref here for convenience
 	//storage        logical.Storage
 }
@@ -45,71 +48,74 @@ func Factory(ctx context.Context, conf *logical.BackendConfig) (logical.Backend,
 	if err = b.pkiBackend.Backend.Setup(ctx, conf); err != nil {
 		return nil, err
 	}
+	b.backendConfig = conf
+	if _, ok := conf.Config[CONFIG_PARAM]; !ok {
+		b.pkiBackend.Backend.Logger().Error("Please add a parameter specifying a file containing the HSM's configuration. Plugin mounting aborted.")
+	}
+	return b.pkiBackend.Backend, nil
 
-	if confFile, ok := conf.Config[CONFIG_PARAM]; ok {
+}
+
+// plugins are launched first in metadata mode then lazily loaded later so don't create the connection until fully loaded
+// https://groups.google.com/g/vault-tool/c/z6iaU_B159A/m/ag7OJaeECQAJ
+func (b *HsmPkiBackend) initnow(ctx context.Context, req *logical.InitializationRequest) error {
+	b.pkiBackend.Backend.Logger().Info("Init")
+
+	if confFile, ok := b.backendConfig.Config[CONFIG_PARAM]; ok {
 
 		b.pkiBackend.Backend.Logger().Info("found conf: " + confFile)
 
 		// check the conf is valid
-		if err = b.loadConf(confFile); err != nil {
-			return nil, errwrap.Wrapf("Conf file error: {{err}}", err)
+		if err := b.loadConf(confFile); err != nil {
+			return errwrap.Wrapf("Conf file error: {{err}}", err)
 		}
+
 		b.loadStorage()
-
 		b.configurePkcs11Connection()
-		b.checkPkcs11ConnectionAsync() //; err != nil {
-		//	b.pkiBackend.Backend.Logger().Error("PKCS#11 connection timed out on startup, will retry on request")
-		//}
-
-		return b.pkiBackend.Backend, nil
+		b.checkPkcs11ConnectionAsync()
 
 	} else {
-		for key, value := range conf.Config {
-			b.pkiBackend.Backend.Logger().Info("Conf key=" + key + " Val=" + value)
-		}
 		b.pkiBackend.Backend.Logger().Error("Please add a parameter specifying a file containing the HSM's configuration. Plugin mounting aborted.")
-		// infer whether the plugin is being registered in the catalog or being mounted by checking for the presence of plugin_name
-		// there may be a better way to do this!
-		if _, ok := conf.Config[CONFIG_PLUGIN_NAME]; ok {
-			// if the plugin is being mounted and the config file hasn't been included then fail with a message
-			return nil, errors.New("Please add a parameter specifying a file containing the HSM's configuration. Plugin mounting aborted.")
-		} else {
-			// a Backend is returned here so that the plugin can be registered in the catalog
-			return b.pkiBackend.Backend, nil
-		}
+		return errors.New("Please add a parameter specifying a file containing the HSM's configuration. Plugin mounting aborted.")
 	}
 
+	return nil
 }
 
 func Backend(conf *logical.BackendConfig) (*HsmPkiBackend, error) {
 	b := &HsmPkiBackend{
-		//keyConfig: pkcs11client.KeyConfig{Label: "SSL Root CA 02", Type: pkcs11client.CKK_RSA },
-		//		keyConfig: pkcs11client.KeyConfig{Id: "0007", Type: pkcs11.CKK_RSA},
 		store: make(map[string][]byte),
 	}
 
 	b.pkiBackend.Backend.Backend = &framework.Backend{
-		Help:        strings.TrimSpace(PLUGIN_HELP),
-		BackendType: logical.TypeLogical,
+		Help:           strings.TrimSpace(PLUGIN_HELP),
+		BackendType:    logical.TypeLogical,
+		InitializeFunc: b.initnow,
 		Paths: []*framework.Path{
 			pki.PathListRoles(&b.pkiBackend.Backend),
 			pki.PathRoles(&b.pkiBackend.Backend),
-			//pki.PathGenerateRoot(&b.pkiBackend.Backend),
-			//pki.PathGenerateIntermediate(&b.pkiBackend.Backend),
-			//pki.PathSignIntermediate(&b.pkiBackend.Backend),
+			pathGenerateRoot(b),
+			pathSignIntermediate(b),
+			//pathSignSelfIssued(b),
+			pathDeleteRoot(b),
+			pathGenerateIntermediate(b),
 			pathSetSignedIntermediate(b),
+			//pathConfigCA(&b),	// not implemented
+			pki.PathConfigCRL(&b.pkiBackend.Backend),
+			pki.PathConfigURLs(&b.pkiBackend.Backend),
+			pathSignVerbatim(b),
 			pathSign(b),
 			pathIssue(b),
-			pki.PathFetchListCerts(&b.pkiBackend.Backend),
-			pki.PathFetchValid(&b.pkiBackend.Backend),
+			pathRotateCRL(b),
 			pki.PathFetchCA(&b.pkiBackend.Backend),
 			pki.PathFetchCAChain(&b.pkiBackend.Backend),
-			pki.PathConfigCRL(&b.pkiBackend.Backend),
 			pki.PathFetchCRL(&b.pkiBackend.Backend),
 			pki.PathFetchCRLViaCertPath(&b.pkiBackend.Backend),
+			pki.PathFetchValid(&b.pkiBackend.Backend),
+			pki.PathFetchListCerts(&b.pkiBackend.Backend),
 			pathRevoke(b),
-			pathFetchCAKeyAlias(b),
-			// TODO: TIdy and Sign Verbatim
+			pathTidy(b),
+			pathFetchCAKeyLabel(b), // new path
 		},
 		PathsSpecial: &logical.Paths{
 			Unauthenticated: []string{
@@ -150,16 +156,25 @@ func (b *HsmPkiBackend) configurePkcs11Connection() {
 // on startup attempt to connect asynchronously
 func (b *HsmPkiBackend) checkPkcs11ConnectionAsync() {
 
+	b.connChannel = make(chan int)
+
 	go func() {
-		//		b.refreshMutex.Lock()
-		//		defer b.refreshMutex.Unlock()
-		//b.pkiBackend.Backend.Logger().Info("Attempt to reconnect PKCS#11 connection")
+		//for {
 
-		//b.pkcs11client.Pkcs11Mutex.Lock()
-		//b.pkcs11client.FlushSession()
-		//b.pkcs11client.Pkcs11Mutex.Unlock()
+		b.pkiBackend.Backend.Logger().Info("Checking PKCS#11 connection")
 
-		b.checkPkcs11ConnectionSync()
+		// plugins are launched first in metadata mode then lazily loaded later so don't create the connection until fully loaded
+		// https://groups.google.com/g/vault-tool/c/z6iaU_B159A/m/ag7OJaeECQAJ
+		timer := time.NewTimer(time.Second * 3)
+		select {
+		case <-b.connChannel:
+			b.pkiBackend.Backend.Logger().Info("Shutting down PKCS#11 connection monitor")
+			return
+		case <-timer.C:
+			// continue
+			b.checkPkcs11ConnectionSync()
+		}
+		//}
 	}()
 	return
 }
@@ -242,7 +257,8 @@ func (b *HsmPkiBackend) loadStorage() {
 		// no override, use the conf file's key label (if set)
 		b.cachedCAConfig.caKeyAlias = b.pkcs11client.HsmConfig.KeyLabel
 	} else {
-		msg := fmt.Sprintf("Found HSM key label in storage: %s", caKeyAlias.Value)
+		b.cachedCAConfig.caKeyAlias = string(caKeyAlias.Value)
+		msg := fmt.Sprintf("Found HSM key label in storage: %s alias: %s", caKeyAlias.Value, b.cachedCAConfig.caKeyAlias)
 		b.pkiBackend.Backend.Logger().Info(msg)
 	}
 

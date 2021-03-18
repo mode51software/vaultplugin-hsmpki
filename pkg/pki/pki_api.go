@@ -28,8 +28,16 @@ func AddCACommonFields(fields map[string]*framework.FieldSchema) map[string]*fra
 	return addCACommonFields(fields)
 }
 
+func AddCAIssueFields(fields map[string]*framework.FieldSchema) map[string]*framework.FieldSchema {
+	return addCAIssueFields(fields)
+}
+
 func AddCAKeyGenerationFields(fields map[string]*framework.FieldSchema) map[string]*framework.FieldSchema {
 	return addCAKeyGenerationFields(fields)
+}
+
+func (b *PkiBackend) GetGenerationParams(data *framework.FieldData) (exported bool, format string, role *roleEntry, errorResp *logical.Response) {
+	return b.Backend.getGenerationParams(data)
 }
 
 func GetFormat(data *framework.FieldData) string {
@@ -70,6 +78,15 @@ func GenerateConvertedCreationBundle(b *backend, data *InputBundleA, caSign *cer
 	return GenerateCreationBundle(b, &dataBundle, caSign, csr)
 }
 
+func GenerateIntermediateCSR(b *backend, data *InputBundleA) (*certutil.ParsedCSRBundle, error) {
+	dataBundle := inputBundle{
+		role:    data.Role.roleEntry,
+		req:     data.Req,
+		apiData: data.ApiData,
+	}
+	return generateIntermediateCSR(b, &dataBundle)
+}
+
 func GenerateCreationBundle(b *backend, data *inputBundle, caSign *certutil.CAInfoBundle, csr *x509.CertificateRequest) (*certutil.CreationBundle, error) {
 	return generateCreationBundle(b, data, caSign, csr)
 }
@@ -92,6 +109,10 @@ func (b *backend) PathRoleCreate(ctx context.Context, req *logical.Request, data
 
 func PathConfigCRL(b *backend) *framework.Path {
 	return pathConfigCRL(b)
+}
+
+func PathConfigURLs(b *backend) *framework.Path {
+	return pathConfigURLs(b)
 }
 
 func (b *backend) PathCRLWrite(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
@@ -164,6 +185,12 @@ func (b *PkiBackend) GetRevokeStorageLock() *sync.RWMutex {
 
 type RoleEntry struct {
 	*roleEntry
+}
+
+func GenRoleEntry() *RoleEntry {
+	locRoleEntry := roleEntry{}
+	retRoleEntry := RoleEntry{&locRoleEntry}
+	return &retRoleEntry
 }
 
 type InputBundleA struct {

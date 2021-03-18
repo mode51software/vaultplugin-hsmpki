@@ -3,6 +3,8 @@ package hsmpki
 import (
 	"context"
 	"crypto"
+	"encoding/base64"
+	"fmt"
 	"github.com/hashicorp/errwrap"
 	"github.com/hashicorp/vault/sdk/framework"
 	"github.com/hashicorp/vault/sdk/helper/certutil"
@@ -11,6 +13,31 @@ import (
 	"github.com/mode51software/vaultplugin-hsmpki/pkg/pki"
 	"strings"
 )
+
+func pathGenerateIntermediate(b *HsmPkiBackend) *framework.Path {
+	ret := &framework.Path{
+		Pattern: "intermediate/generate/" + framework.GenericNameRegex("exported"),
+
+		Callbacks: map[logical.Operation]framework.OperationFunc{
+			logical.UpdateOperation: b.pathGenerateIntermediate,
+		},
+
+		HelpSynopsis:    pathGenerateIntermediateHelpSyn,
+		HelpDescription: pathGenerateIntermediateHelpDesc,
+	}
+
+	ret.Fields = pki.AddCACommonFields(map[string]*framework.FieldSchema{})
+	ret.Fields = pki.AddCAKeyGenerationFields(ret.Fields)
+	ret.Fields["add_basic_constraints"] = &framework.FieldSchema{
+		Type: framework.TypeBool,
+		Description: `Whether to add a Basic Constraints
+extension with CA: true. Only needed as a
+workaround in some compatibility scenarios
+with Active Directory Certificate Services.`,
+	}
+
+	return ret
+}
 
 func pathSetSignedIntermediate(b *HsmPkiBackend) *framework.Path {
 	ret := &framework.Path{
@@ -23,9 +50,9 @@ func pathSetSignedIntermediate(b *HsmPkiBackend) *framework.Path {
 certificate with a public key and a key alias that matches a private key in the HSM. 
 .`,
 			},
-			"key_alias": &framework.FieldSchema{
+			"key_label": &framework.FieldSchema{
 				Type: framework.TypeString,
-				Description: `The key alias of the private key in the HSM.
+				Description: `The key label of the private key in the HSM.
 Providing this will override the key alias that can be set in the configuration file.
 .`,
 			},
@@ -53,9 +80,99 @@ For RSA and ECDSA the options are SHA-256, SHA-384 or SHA-512.
 	return ret
 }
 
+func (b *HsmPkiBackend) pathGenerateIntermediate(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	var err error
+
+	if err = b.checkPkcs11ConnectionSync(); err != nil {
+		return nil, err
+	}
+
+	exported, format, role, errorResp := b.getGenerationParams(data)
+	if errorResp != nil {
+		return errorResp, nil
+	}
+
+	var resp *logical.Response
+	input := &pki.InputBundleA{
+		Role:    role,
+		Req:     req,
+		ApiData: data,
+	}
+	parsedBundle, err := generateIntermediateCSR(b, input)
+	if err != nil {
+		switch err.(type) {
+		case errutil.UserError:
+			return logical.ErrorResponse(err.Error()), nil
+		case errutil.InternalError:
+			return logical.ErrorResponse(err.Error()), nil
+		default:
+			return nil, err
+		}
+	}
+
+	csrb, err := parsedBundle.ToCSRBundle()
+	if err != nil {
+		return nil, errwrap.Wrapf("error converting raw CSR bundle to CSR bundle: {{err}}", err)
+	}
+
+	resp = &logical.Response{
+		Data: map[string]interface{}{},
+	}
+
+	switch format {
+	case "pem":
+		resp.Data["csr"] = csrb.CSR
+		if exported {
+			resp.Data["private_key"] = csrb.PrivateKey
+			resp.Data["private_key_type"] = csrb.PrivateKeyType
+		}
+
+	case "pem_bundle":
+		resp.Data["csr"] = csrb.CSR
+		if exported {
+			resp.Data["csr"] = fmt.Sprintf("%s\n%s", csrb.PrivateKey, csrb.CSR)
+			resp.Data["private_key"] = csrb.PrivateKey
+			resp.Data["private_key_type"] = csrb.PrivateKeyType
+		}
+
+	case "der":
+		resp.Data["csr"] = base64.StdEncoding.EncodeToString(parsedBundle.CSRBytes)
+		if exported {
+			resp.Data["private_key"] = base64.StdEncoding.EncodeToString(parsedBundle.PrivateKeyBytes)
+			resp.Data["private_key_type"] = csrb.PrivateKeyType
+		}
+	}
+
+	resp.Data[FIELD_KEYALIAS] = b.cachedCAConfig.caKeyAlias
+
+	/*	if data.Get("private_key_format").(string) == "pkcs8" {
+			err = convertRespToPKCS8(resp)
+			if err != nil {
+				return nil, err
+			}
+		}
+	*/
+	cb := &certutil.CertBundle{}
+	//	cb.PrivateKey = csrb.PrivateKey
+	//	cb.PrivateKeyType = csrb.PrivateKeyType
+
+	entry, err := logical.StorageEntryJSON(CA_BUNDLE, cb)
+	if err != nil {
+		return nil, err
+	}
+	err = req.Storage.Put(ctx, entry)
+	if err != nil {
+		return nil, err
+	}
+
+	return resp, nil
+}
+
 func (b *HsmPkiBackend) pathSetSignedIntermediate(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 
-	b.checkPkcs11ConnectionSync()
+	if err := b.checkPkcs11ConnectionSync(); err != nil {
+		return nil, err
+	}
 
 	cert := data.Get("certificate").(string)
 
@@ -96,7 +213,7 @@ func (b *HsmPkiBackend) pathSetSignedIntermediate(ctx context.Context, req *logi
 		return nil, errwrap.Wrapf("error converting raw values into cert bundle: {{err}}", err)
 	}
 
-	entry, err := logical.StorageEntryJSON("config/ca_bundle", cb)
+	entry, err := logical.StorageEntryJSON(CA_BUNDLE, cb)
 	if err != nil {
 		return nil, err
 	}
@@ -122,19 +239,21 @@ func (b *HsmPkiBackend) pathSetSignedIntermediate(ctx context.Context, req *logi
 	}
 
 	inCaKeyAlias := data.Get(FIELD_KEYALIAS).(string)
-	entry.Key = PATH_CAKEYALIAS
+	entry.Key = PATH_CAKEYLABEL
 
 	if inCaKeyAlias == "" {
-		// use the key label provided in the conf file
-		entry.Value = []byte(b.pkcs11client.HsmConfig.KeyLabel)
-		if err = b.storeEntry(ctx, entry, &req.Storage); err != nil {
-			return nil, err
+		// if a key alias has already been set by an auto generated CA cert then can skip
+		if len(b.cachedCAConfig.caKeyAlias) == 0 {
+			// use the key label provided in the conf file
+			entry.Value = []byte(b.pkcs11client.HsmConfig.KeyLabel)
+			if err = b.storeEntry(ctx, entry, &req.Storage); err != nil {
+				return nil, err
+			}
+			if len(b.pkcs11client.HsmConfig.KeyLabel) == 0 {
+				return nil, errwrap.Wrapf("Either set a key_label in the plugin's conf file or pass in an HSM key label using key_label", nil)
+			}
+			b.cachedCAConfig.caKeyAlias = b.pkcs11client.HsmConfig.KeyLabel
 		}
-		if len(b.pkcs11client.HsmConfig.KeyLabel) == 0 {
-			return nil, errwrap.Wrapf("Either set a key_label in the plugin's conf file or pass in an HSM key label using key_label", nil)
-		}
-		b.cachedCAConfig.caKeyAlias = b.pkcs11client.HsmConfig.KeyLabel
-
 	} else {
 
 		entry.Value = []byte(inCaKeyAlias)
@@ -168,7 +287,6 @@ func (b *HsmPkiBackend) pathSetSignedIntermediate(ctx context.Context, req *logi
 	}
 	b.cachedCAConfig.hashAlgo = hashAlgoId
 
-	// TODO: Build a fresh CRL
 	err = buildCRL(ctx, b, req, true)
 
 	return nil, err
@@ -180,6 +298,14 @@ func (b *HsmPkiBackend) storeEntry(ctx context.Context, entry *logical.StorageEn
 	}
 	return nil
 }
+
+const pathGenerateIntermediateHelpSyn = `
+Generate a new CSR and private key used for signing.
+`
+
+const pathGenerateIntermediateHelpDesc = `
+See the API documentation for more information.
+`
 
 const pathSetSignedIntermediateHelpSyn = `
 Provide the signed intermediate CA cert.
