@@ -71,19 +71,21 @@ func CreateCSR(b *HsmPkiBackend, data *certutil.CreationBundle, addBasicConstrai
 	var err error
 	result := &certutil.ParsedCSRBundle{}
 
+	keyType, err := GetDataKeyType(&data.Params.KeyType)
+	if err != nil {
+		return nil, err
+	}
+
 	if len(b.cachedCAConfig.caKeyAlias) == 0 {
 		keyLabel := "INCA" + GenDateTimeKeyLabel()
-		if err = b.saveCAKeyAlias(context.Background(), b.pkiBackend.GetStorage(), &keyLabel); err != nil {
+		if err = b.saveCAKeyData(context.Background(), b.pkiBackend.GetStorage(),
+			&keyLabel, keyType, data.Params.KeyBits); err != nil {
 			return nil, errutil.InternalError{err.Error()}
 		}
 		b.cachedCAConfig.caKeyAlias = keyLabel
 	}
 
-	keyType, err := GetDataKeyType(&data.Params.KeyType)
-	if err != nil {
-		return nil, err
-	}
-	keyConfig := pkcs11client.KeyConfig{Label: b.cachedCAConfig.caKeyAlias, Id: []byte{59}, Type: keyType, KeyBits: data.Params.KeyBits}
+	keyConfig := pkcs11client.KeyConfig{Label: b.cachedCAConfig.caKeyAlias, Type: keyType, KeyBits: data.Params.KeyBits}
 
 	// if the key already exists, carry on so we can generate a new CSR
 	if err = b.pkcs11client.CheckExistsOkCreateKeyPair(&keyConfig); err != nil {
@@ -92,14 +94,6 @@ func CreateCSR(b *HsmPkiBackend, data *certutil.CreationBundle, addBasicConstrai
 
 	publicKey, err := b.pkcs11client.ReadPublicKey(&keyConfig, keyConfig.Type)
 
-	//result.SetParsedPrivateKey(privateKey, privateKeyType, privateKeyBytes)
-
-	/*	if err := generatePrivateKey(data.Params.KeyType,
-			data.Params.KeyBits,
-			result); err != nil {
-			return nil, err
-		}
-	*/
 	// Like many root CAs, other information is ignored
 	csrTemplate := &x509.CertificateRequest{
 		Subject:        data.Params.Subject,
@@ -137,13 +131,10 @@ func CreateCSR(b *HsmPkiBackend, data *certutil.CreationBundle, addBasicConstrai
 		csrTemplate.SignatureAlgorithm = x509.ECDSAWithSHA256
 	}
 
-	// we can choose the signing type internally here
 	var caSigner pkcs11client.HsmSigner
 	caSigner.KeyConfig.Label = b.cachedCAConfig.caKeyAlias
-	caSigner.KeyConfig.Type = pkcs11.CKK_EC
-	caSigner.KeyConfig.KeyBits = 521
 	caSigner.Pkcs11Client = &b.pkcs11client
-	caSigner.PublicKey = publicKey //data.SigningBundle.Certificate.PublicKey
+	caSigner.PublicKey = publicKey
 
 	csr, err := x509.CreateCertificateRequest(rand.Reader, csrTemplate, caSigner)
 	if err != nil {
@@ -328,16 +319,18 @@ func CreateCertificate(b *HsmPkiBackend, data *certutil.CreationBundle) (*certut
 
 	// non-CA private keys are generated in Vault, CAs generated in the HSM
 	if data.Params.IsCA {
-		if len(b.cachedCAConfig.caKeyAlias) == 0 {
-			// gen a new key label based on the curr time
-			keyLabel := "ROOTCA" + GenDateTimeKeyLabel()
-			b.cachedCAConfig.caKeyAlias = keyLabel
-			b.saveCAKeyAlias(context.Background(), b.pkiBackend.GetStorage(), &keyLabel)
-		}
 
 		keyType, err := GetDataKeyType(&data.Params.KeyType)
 		if err != nil {
 			return nil, err
+		}
+
+		if len(b.cachedCAConfig.caKeyAlias) == 0 {
+			// gen a new key label based on the curr time
+			keyLabel := "ROOTCA" + GenDateTimeKeyLabel()
+			b.cachedCAConfig.caKeyAlias = keyLabel
+			b.saveCAKeyData(context.Background(), b.pkiBackend.GetStorage(),
+				&keyLabel, keyType, data.Params.KeyBits)
 		}
 
 		keyConfig := &pkcs11client.KeyConfig{Label: b.cachedCAConfig.caKeyAlias, Type: keyType, KeyBits: data.Params.KeyBits}
@@ -347,6 +340,7 @@ func CreateCertificate(b *HsmPkiBackend, data *certutil.CreationBundle) (*certut
 		if subjKeyID, publicKey, err = b.pkcs11client.GetGenSubjectKeyId(keyConfig, keyType); err != nil {
 			return nil, errutil.UserError{err.Error()}
 		}
+		//		result.SetParsedPrivateKey(nil, certutil.PrivateKeyType(data.Params.KeyType), nil)
 
 	} else {
 		if err = certutil.GeneratePrivateKey(data.Params.KeyType,

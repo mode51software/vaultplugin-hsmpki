@@ -196,7 +196,12 @@ func (b *HsmPkiBackend) pathTidyWrite(ctx context.Context, req *logical.Request,
 				}
 
 				if tidiedRevoked {
-					if err := buildCRL(ctx, b, req, false); err != nil {
+
+					if err = b.checkPkcs11ConnectionSync(); err != nil {
+						return err
+					}
+
+					if err = buildCRL(ctx, b, req, false); err != nil {
 						return err
 					}
 				}

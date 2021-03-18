@@ -2,18 +2,11 @@ package hsmpki
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/x509"
 	"encoding/base64"
-	"encoding/pem"
 	"fmt"
 	"github.com/mode51software/pkcs11helper/pkg/pkcs11client"
 	"github.com/mode51software/vaultplugin-hsmpki/pkg/pki"
-	"reflect"
-	"strings"
 	"time"
-
-	"github.com/hashicorp/vault/sdk/helper/certutil"
 
 	"github.com/hashicorp/errwrap"
 	"github.com/hashicorp/vault/sdk/framework"
@@ -93,7 +86,7 @@ the non-repudiation flag.`,
 	return ret
 }
 
-func pathSignSelfIssued(b *HsmPkiBackend) *framework.Path {
+/*func pathSignSelfIssued(b *HsmPkiBackend) *framework.Path {
 	ret := &framework.Path{
 		Pattern: "root/sign-self-issued",
 
@@ -113,11 +106,15 @@ func pathSignSelfIssued(b *HsmPkiBackend) *framework.Path {
 	}
 
 	return ret
-}
+}*/
 
 func (b *HsmPkiBackend) pathCADeleteRoot(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 
 	if len(b.cachedCAConfig.caKeyAlias) > 0 {
+
+		if err := b.checkPkcs11ConnectionSync(); err != nil {
+			return nil, err
+		}
 
 		keyConfig := pkcs11client.KeyConfig{Label: b.cachedCAConfig.caKeyAlias}
 
@@ -251,6 +248,14 @@ func (b *HsmPkiBackend) pathCAGenerateRoot(ctx context.Context, req *logical.Req
 		return nil, err
 	}
 
+	// the private key in the CA bundle won't be saved because the private key material is unavailable so store separately
+	entry.Key = CA_TYPE
+	entry.Value = []byte(parsedBundle.PrivateKeyType)
+	err = req.Storage.Put(ctx, entry)
+	if err != nil {
+		return nil, err
+	}
+
 	// Build a fresh CRL
 	err = buildCRL(ctx, b, req, true)
 	if err != nil {
@@ -266,6 +271,10 @@ func (b *HsmPkiBackend) pathCAGenerateRoot(ctx context.Context, req *logical.Req
 
 func (b *HsmPkiBackend) pathCASignIntermediate(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	var err error
+
+	if err = b.checkPkcs11ConnectionSync(); err != nil {
+		return nil, err
+	}
 
 	format := pki.GetFormat(data)
 	if format == "" {
@@ -398,8 +407,12 @@ func (b *HsmPkiBackend) pathCASignIntermediate(ctx context.Context, req *logical
 	return resp, nil
 }
 
-func (b *HsmPkiBackend) pathCASignSelfIssued(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+/*func (b *HsmPkiBackend) pathCASignSelfIssued(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	var err error
+
+	if err = b.checkPkcs11ConnectionSync(); err != nil {
+		return nil, err
+	}
 
 	certPem := data.Get("certificate").(string)
 	block, _ := pem.Decode([]byte(certPem))
@@ -446,6 +459,16 @@ func (b *HsmPkiBackend) pathCASignSelfIssued(ctx context.Context, req *logical.R
 	cert.CRLDistributionPoints = urls.CRLDistributionPoints
 	cert.OCSPServer = urls.OCSPServers
 
+//	msg := fmt.Sprintf("sign type=%s", signingCB.PrivateKeyType)
+//	b.pkiBackend.Backend.Logger().Info(msg)
+
+	//	publicKey, err := b.pkcs11client.ReadPublicKey(&keyConfig, keyConfig.Type)
+
+	var caSigner pkcs11client.HsmSigner
+	caSigner.KeyConfig.Label = b.cachedCAConfig.caKeyAlias
+	caSigner.Pkcs11Client = &b.pkcs11client
+	//	caSigner.PublicKey = publicKey
+
 	newCert, err := x509.CreateCertificate(rand.Reader, cert, signingBundle.Certificate, cert.PublicKey, signingBundle.PrivateKey)
 	if err != nil {
 		return nil, errwrap.Wrapf("error signing self-issued certificate: {{err}}", err)
@@ -465,7 +488,7 @@ func (b *HsmPkiBackend) pathCASignSelfIssued(ctx context.Context, req *logical.R
 		},
 	}, nil
 }
-
+*/
 const pathGenerateRootHelpSyn = `
 Generate a new CA certificate and private key used for signing.
 `

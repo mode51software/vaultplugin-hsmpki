@@ -179,6 +179,7 @@ func testSetSignedIntermediate(t *testing.T, integraTest *testEnv) {
 		return
 	} else {
 		data.Raw["certificate"] = caData
+		data.Raw["key_label"] = TEST_KEY_LABEL
 	}
 	if _, err := integraTest.HsmPkiBackend.pathSetSignedIntermediate(integraTest.Context, req, &data); err != nil {
 		t.Error(err)

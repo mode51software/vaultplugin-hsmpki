@@ -53,9 +53,65 @@ func pathSign(b *HsmPkiBackend) *framework.Path {
 	return ret
 }
 
+func pathSignVerbatim(b *HsmPkiBackend) *framework.Path {
+	ret := &framework.Path{
+		Pattern: "sign-verbatim" + framework.OptionalParamRegex("role"),
+
+		Callbacks: map[logical.Operation]framework.OperationFunc{
+			logical.UpdateOperation: b.pathSignVerbatim,
+		},
+
+		HelpSynopsis:    pathSignHelpSyn,
+		HelpDescription: pathSignHelpDesc,
+	}
+
+	ret.Fields = pki.AddNonCACommonFields(map[string]*framework.FieldSchema{})
+
+	ret.Fields["csr"] = &framework.FieldSchema{
+		Type:    framework.TypeString,
+		Default: "",
+		Description: `PEM-format CSR to be signed. Values will be
+taken verbatim from the CSR, except for
+basic constraints.`,
+	}
+
+	ret.Fields["key_usage"] = &framework.FieldSchema{
+		Type:    framework.TypeCommaStringSlice,
+		Default: []string{"DigitalSignature", "KeyAgreement", "KeyEncipherment"},
+		Description: `A comma-separated string or list of key usages (not extended
+key usages). Valid values can be found at
+https://golang.org/pkg/crypto/x509/#KeyUsage
+-- simply drop the "KeyUsage" part of the name.
+To remove all key usages from being set, set
+this value to an empty list.`,
+	}
+
+	ret.Fields["ext_key_usage"] = &framework.FieldSchema{
+		Type:    framework.TypeCommaStringSlice,
+		Default: []string{},
+		Description: `A comma-separated string or list of extended key usages. Valid values can be found at
+https://golang.org/pkg/crypto/x509/#ExtKeyUsage
+-- simply drop the "ExtKeyUsage" part of the name.
+To remove all key usages from being set, set
+this value to an empty list.`,
+	}
+
+	ret.Fields["ext_key_usage_oids"] = &framework.FieldSchema{
+		Type:        framework.TypeCommaStringSlice,
+		Description: `A comma-separated string or list of extended key usage oids.`,
+	}
+
+	return ret
+}
+
 // pathIssue issues a certificate and private key from given parameters,
 // subject to role restrictions
 func (b *HsmPkiBackend) pathIssue(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+
+	if err := b.checkPkcs11ConnectionSync(); err != nil {
+		return nil, err
+	}
+
 	roleName := data.Get("role").(string)
 
 	// Get the role
@@ -78,6 +134,10 @@ func (b *HsmPkiBackend) pathIssue(ctx context.Context, req *logical.Request, dat
 // restrictions
 func (b *HsmPkiBackend) pathSign(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 
+	if err := b.checkPkcs11ConnectionSync(); err != nil {
+		return nil, err
+	}
+
 	roleName := data.Get("role").(string)
 
 	// Get the role
@@ -90,6 +150,51 @@ func (b *HsmPkiBackend) pathSign(ctx context.Context, req *logical.Request, data
 	}
 
 	return b.pathIssueSignCert(ctx, req, data, role, true, false)
+}
+
+// pathSignVerbatim issues a certificate from a submitted CSR, *not* subject to
+// role restrictions
+func (b *HsmPkiBackend) pathSignVerbatim(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+
+	roleName := data.Get("role").(string)
+
+	// Get the role if one was specified
+	role, err := b.pkiBackend.GetRole(ctx, req.Storage, roleName)
+	if err != nil {
+		return nil, err
+	}
+
+	entry := pki.GenRoleEntry()
+	entry.AllowLocalhost = true
+	entry.AllowAnyName = true
+	entry.AllowIPSANs = true
+	entry.EnforceHostnames = false
+	entry.KeyType = "any"
+	entry.UseCSRCommonName = true
+	entry.UseCSRSANs = true
+	entry.AllowedURISANs = []string{"*"}
+	entry.AllowedSerialNumbers = []string{"*"}
+	entry.GenerateLease = new(bool)
+	entry.KeyUsage = data.Get("key_usage").([]string)
+	entry.ExtKeyUsage = data.Get("ext_key_usage").([]string)
+	entry.ExtKeyUsageOIDs = data.Get("ext_key_usage_oids").([]string)
+
+	*entry.GenerateLease = false
+
+	if role != nil {
+		if role.TTL > 0 {
+			entry.TTL = role.TTL
+		}
+		if role.MaxTTL > 0 {
+			entry.MaxTTL = role.MaxTTL
+		}
+		if role.GenerateLease != nil {
+			*entry.GenerateLease = *role.GenerateLease
+		}
+		entry.NoStore = role.NoStore
+	}
+
+	return b.pathIssueSignCert(ctx, req, data, entry, true, true)
 }
 
 func (b *HsmPkiBackend) pathIssueSignCert(ctx context.Context, req *logical.Request, data *framework.FieldData, role *pki.RoleEntry, useCSR, useCSRValues bool) (*logical.Response, error) {

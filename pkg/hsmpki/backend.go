@@ -96,14 +96,14 @@ func Backend(conf *logical.BackendConfig) (*HsmPkiBackend, error) {
 			pki.PathRoles(&b.pkiBackend.Backend),
 			pathGenerateRoot(b),
 			pathSignIntermediate(b),
-			//pathSignSelfIssued(&b),
+			//pathSignSelfIssued(b),
 			pathDeleteRoot(b),
 			pathGenerateIntermediate(b),
 			pathSetSignedIntermediate(b),
 			//pathConfigCA(&b),	// not implemented
 			pki.PathConfigCRL(&b.pkiBackend.Backend),
 			pki.PathConfigURLs(&b.pkiBackend.Backend),
-			//pathSignVerbatim(&b),
+			pathSignVerbatim(b),
 			pathSign(b),
 			pathIssue(b),
 			pathRotateCRL(b),
@@ -257,7 +257,8 @@ func (b *HsmPkiBackend) loadStorage() {
 		// no override, use the conf file's key label (if set)
 		b.cachedCAConfig.caKeyAlias = b.pkcs11client.HsmConfig.KeyLabel
 	} else {
-		msg := fmt.Sprintf("Found HSM key label in storage: %s", caKeyAlias.Value)
+		b.cachedCAConfig.caKeyAlias = string(caKeyAlias.Value)
+		msg := fmt.Sprintf("Found HSM key label in storage: %s alias: %s", caKeyAlias.Value, b.cachedCAConfig.caKeyAlias)
 		b.pkiBackend.Backend.Logger().Info(msg)
 	}
 

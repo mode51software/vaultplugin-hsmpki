@@ -170,7 +170,9 @@ func (b *HsmPkiBackend) pathGenerateIntermediate(ctx context.Context, req *logic
 
 func (b *HsmPkiBackend) pathSetSignedIntermediate(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 
-	b.checkPkcs11ConnectionSync()
+	if err := b.checkPkcs11ConnectionSync(); err != nil {
+		return nil, err
+	}
 
 	cert := data.Get("certificate").(string)
 
@@ -285,7 +287,6 @@ func (b *HsmPkiBackend) pathSetSignedIntermediate(ctx context.Context, req *logi
 	}
 	b.cachedCAConfig.hashAlgo = hashAlgoId
 
-	// TODO: Build a fresh CRL
 	err = buildCRL(ctx, b, req, true)
 
 	return nil, err
