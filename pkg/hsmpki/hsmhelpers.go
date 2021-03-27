@@ -329,8 +329,10 @@ func CreateCertificate(b *HsmPkiBackend, data *certutil.CreationBundle) (*certut
 			// gen a new key label based on the curr time
 			keyLabel := "ROOTCA" + GenDateTimeKeyLabel()
 			b.cachedCAConfig.caKeyAlias = keyLabel
-			b.saveCAKeyData(context.Background(), b.pkiBackend.GetStorage(),
-				&keyLabel, keyType, data.Params.KeyBits)
+			if err = b.saveCAKeyData(context.Background(), b.pkiBackend.GetStorage(),
+				&keyLabel, keyType, data.Params.KeyBits); err != nil {
+				return nil, errutil.InternalError{err.Error()}
+			}
 		}
 
 		keyConfig := &pkcs11client.KeyConfig{Label: b.cachedCAConfig.caKeyAlias, Type: keyType, KeyBits: data.Params.KeyBits}

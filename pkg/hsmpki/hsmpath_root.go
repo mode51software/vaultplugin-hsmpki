@@ -2,10 +2,16 @@ package hsmpki
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/pem"
 	"fmt"
+	"github.com/hashicorp/vault/sdk/helper/certutil"
 	"github.com/mode51software/pkcs11helper/pkg/pkcs11client"
 	"github.com/mode51software/vaultplugin-hsmpki/pkg/pki"
+	"reflect"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/errwrap"
@@ -86,7 +92,7 @@ the non-repudiation flag.`,
 	return ret
 }
 
-/*func pathSignSelfIssued(b *HsmPkiBackend) *framework.Path {
+func pathSignSelfIssued(b *HsmPkiBackend) *framework.Path {
 	ret := &framework.Path{
 		Pattern: "root/sign-self-issued",
 
@@ -106,7 +112,7 @@ the non-repudiation flag.`,
 	}
 
 	return ret
-}*/
+}
 
 func (b *HsmPkiBackend) pathCADeleteRoot(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 
@@ -121,6 +127,8 @@ func (b *HsmPkiBackend) pathCADeleteRoot(ctx context.Context, req *logical.Reque
 		if err := b.pkcs11client.DeleteKeyPair(&keyConfig); err != nil {
 			return nil, errutil.UserError{"Unable to delete CA #{{err}}"}
 		}
+		b.cachedCAConfig.flushCAConfig()
+		b.saveCAKeyData(ctx, req.Storage, &b.cachedCAConfig.caKeyAlias, 0, 0)
 
 	}
 	return nil, req.Storage.Delete(ctx, CA_BUNDLE)
@@ -407,7 +415,7 @@ func (b *HsmPkiBackend) pathCASignIntermediate(ctx context.Context, req *logical
 	return resp, nil
 }
 
-/*func (b *HsmPkiBackend) pathCASignSelfIssued(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+func (b *HsmPkiBackend) pathCASignSelfIssued(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	var err error
 
 	if err = b.checkPkcs11ConnectionSync(); err != nil {
@@ -459,17 +467,36 @@ func (b *HsmPkiBackend) pathCASignIntermediate(ctx context.Context, req *logical
 	cert.CRLDistributionPoints = urls.CRLDistributionPoints
 	cert.OCSPServer = urls.OCSPServers
 
-//	msg := fmt.Sprintf("sign type=%s", signingCB.PrivateKeyType)
-//	b.pkiBackend.Backend.Logger().Info(msg)
+	if len(b.cachedCAConfig.caKeyAlias) == 0 {
+		return nil, errutil.UserError{Err: "No HSM key label has been set"}
+	}
 
-	//	publicKey, err := b.pkcs11client.ReadPublicKey(&keyConfig, keyConfig.Type)
+	msg := fmt.Sprintf("keyLabel=%s, keyType=%d, keySize=%d",
+		b.cachedCAConfig.caKeyAlias, b.cachedCAConfig.caKeyType, b.cachedCAConfig.caKeySize)
+	b.pkiBackend.Backend.Logger().Info(msg)
+
+	//	msg := fmt.Sprintf("sign type=%s", signingCB.PrivateKeyType)
+	//	b.pkiBackend.Backend.Logger().Info(msg)
+
+	keyConfig := pkcs11client.KeyConfig{
+		Label:   b.cachedCAConfig.caKeyAlias,
+		Type:    b.cachedCAConfig.caKeyType,
+		KeyBits: b.cachedCAConfig.caKeySize,
+	}
+	publicKey, err := b.pkcs11client.ReadPublicKey(&keyConfig, b.cachedCAConfig.caKeyType)
+
+	if err != nil {
+		return nil, errutil.UserError{Err: "Unable to read CA public key for " + b.cachedCAConfig.caKeyAlias}
+	}
 
 	var caSigner pkcs11client.HsmSigner
 	caSigner.KeyConfig.Label = b.cachedCAConfig.caKeyAlias
+	caSigner.KeyConfig.Type = b.cachedCAConfig.caKeyType
+	caSigner.KeyConfig.KeyBits = b.cachedCAConfig.caKeySize
 	caSigner.Pkcs11Client = &b.pkcs11client
-	//	caSigner.PublicKey = publicKey
+	caSigner.PublicKey = publicKey
 
-	newCert, err := x509.CreateCertificate(rand.Reader, cert, signingBundle.Certificate, cert.PublicKey, signingBundle.PrivateKey)
+	newCert, err := x509.CreateCertificate(rand.Reader, cert, signingBundle.Certificate, cert.PublicKey, caSigner) //signingBundle.PrivateKey)
 	if err != nil {
 		return nil, errwrap.Wrapf("error signing self-issued certificate: {{err}}", err)
 	}
@@ -488,7 +515,7 @@ func (b *HsmPkiBackend) pathCASignIntermediate(ctx context.Context, req *logical
 		},
 	}, nil
 }
-*/
+
 const pathGenerateRootHelpSyn = `
 Generate a new CA certificate and private key used for signing.
 `
