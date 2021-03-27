@@ -216,11 +216,30 @@ View the [TESTING](TESTING.md) README
 
 ### Troubleshooting
 
+#### Vault
+
+* api_addr must be configured in [Vault's server configuration file](https://www.vaultproject.io/docs/configuration#api_addr) otherwise plugins don't work properly.
+
+
 #### SafeNet DPoD [Troubleshooting](https://thalesdocs.com/dpod/services/hsmod_services/hsmod_troubleshooting/index.html)
+
+##### Environment
+
+The setenv script sets the following environment var. Please use the path to the root of your dpod files:
+
+```
+declare -x ChrystokiConfigurationPath="/opt/safenet/dpod/current"
+```
+
+This can be set in the service section of the systemd configuration file:
+
+```
+Environment="ChrystokiConfigurationPath=/opt/safenet/dpod/current"
+```
 
 ##### HSM error code 0x80001604
 
-This may indicate that the SafeNet DPoD partition is full
+* This may indicate that the SafeNet DPoD partition is full
 
 ## License
 

@@ -20,6 +20,14 @@ import (
 type cachedCAConfig struct {
 	caKeyAlias string
 	hashAlgo   crypto.Hash
+	caKeyType  uint
+	caKeySize  int
+}
+
+func (c *cachedCAConfig) flushCAConfig() {
+	c.caKeyAlias = ""
+	c.caKeyType = 0
+	c.caKeySize = 0
 }
 
 type HsmPkiBackend struct {
@@ -96,7 +104,7 @@ func Backend(conf *logical.BackendConfig) (*HsmPkiBackend, error) {
 			pki.PathRoles(&b.pkiBackend.Backend),
 			pathGenerateRoot(b),
 			pathSignIntermediate(b),
-			//pathSignSelfIssued(b),
+			pathSignSelfIssued(b),
 			pathDeleteRoot(b),
 			pathGenerateIntermediate(b),
 			pathSetSignedIntermediate(b),
@@ -258,7 +266,15 @@ func (b *HsmPkiBackend) loadStorage() {
 		b.cachedCAConfig.caKeyAlias = b.pkcs11client.HsmConfig.KeyLabel
 	} else {
 		b.cachedCAConfig.caKeyAlias = string(caKeyAlias.Value)
-		msg := fmt.Sprintf("Found HSM key label in storage: %s alias: %s", caKeyAlias.Value, b.cachedCAConfig.caKeyAlias)
+
+		if keyType, err := b.loadCAKeyType(context.Background(), b.pkiBackend.GetStorage()); err != nil {
+			b.pkiBackend.Backend.Logger().Error("Error retrieving key type")
+		} else {
+			b.cachedCAConfig.caKeyType = keyType
+		}
+
+		msg := fmt.Sprintf("Found HSM key label in storage: %s alias: %s keyType: %d",
+			caKeyAlias.Value, b.cachedCAConfig.caKeyAlias, b.cachedCAConfig.caKeyType)
 		b.pkiBackend.Backend.Logger().Info(msg)
 	}
 
