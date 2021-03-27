@@ -46,43 +46,72 @@ func (b *HsmPkiBackend) loadCAKeyAlias(ctx context.Context, storage logical.Stor
 	return b.loadCAKeyData(ctx, storage, PATH_CAKEYLABEL)
 }
 
-/*func (b *HsmPkiBackend) loadCAKeyType(ctx context.Context, storage logical.Storage) (*logical.StorageEntry, error) {
-	return b.loadCAKeyData(ctx, storage, PATH_CAKEYTYPE)
+func (b *HsmPkiBackend) loadCAKeyType(ctx context.Context, storage logical.Storage) (uint, error) {
+	if data, err := b.loadCAKeyData(ctx, storage, PATH_CAKEYTYPE); err != nil {
+		b.cachedCAConfig.caKeyType = 0
+		return 0, err
+	} else {
+		val := uint(data.Value[0])
+		b.cachedCAConfig.caKeyType = val
+		return val, nil
+	}
 }
 
-func (b *HsmPkiBackend) loadCAKeySize(ctx context.Context, storage logical.Storage) (*logical.StorageEntry, error) {
-	return b.loadCAKeyData(ctx, storage, PATH_CAKEYSIZE)
-}*/
+func (b *HsmPkiBackend) loadCAKeySize(ctx context.Context, storage logical.Storage) (int, error) {
+	if data, err := b.loadCAKeyData(ctx, storage, PATH_CAKEYSIZE); err != nil {
+		b.cachedCAConfig.caKeySize = 0
+		return 0, err
+	} else {
+		val := (int(data.Value[0]) * 256) + (int(data.Value[1]))
+		b.cachedCAConfig.caKeySize = val
+		return val, nil
+	}
+}
 
 func (b *HsmPkiBackend) loadCAKeyData(ctx context.Context, storage logical.Storage, data string) (*logical.StorageEntry, error) {
-	caKeyAlias, err := storage.Get(ctx, data)
+	ret, err := storage.Get(ctx, data)
 	if err != nil {
 		return nil, err
 	}
-	return caKeyAlias, nil
+	return ret, nil
 }
 
 func (b *HsmPkiBackend) saveCAKeyData(ctx context.Context, storage logical.Storage,
-	caKeyAlias *string, caKeyType uint, caKeySize int) error {
-	return b.saveStoreData(ctx, storage, PATH_CAKEYLABEL, caKeyAlias)
+	caKeyLabel *string, caKeyType uint, caKeySize int) (err error) {
+	if err = b.saveCAKeyLabel(ctx, storage, caKeyLabel); err != nil {
+		return
+	}
+	if err = b.saveCAKeyType(ctx, storage, caKeyType); err != nil {
+		return
+	}
+	if err = b.saveCAKeySize(ctx, storage, caKeySize); err != nil {
+		return
+	}
+	return
 }
 
 func (b *HsmPkiBackend) saveCAKeyLabel(ctx context.Context, storage logical.Storage, caKeyAlias *string) error {
-	return b.saveStoreData(ctx, storage, PATH_CAKEYLABEL, caKeyAlias)
+	data := []byte(*caKeyAlias)
+	b.cachedCAConfig.caKeyAlias = *caKeyAlias
+	return b.saveStoreData(ctx, storage, PATH_CAKEYLABEL, &data)
 }
 
-/*func (b *HsmPkiBackend) saveCAKeyType(ctx context.Context, storage logical.Storage, caKeyType uint) error {
-	return b.saveStoreData(ctx, storage, PATH_CAKEYTYPE, caKeyType)
+func (b *HsmPkiBackend) saveCAKeyType(ctx context.Context, storage logical.Storage, caKeyType uint) error {
+	data := []byte{byte(caKeyType)}
+	b.cachedCAConfig.caKeyType = caKeyType
+	return b.saveStoreData(ctx, storage, PATH_CAKEYTYPE, &data)
 }
 
 func (b *HsmPkiBackend) saveCAKeySize(ctx context.Context, storage logical.Storage, caKeySize int) error {
-	return b.saveStoreData(ctx, storage, PATH_CAKEYSIZE, caKeySize)
-}*/
+	data := []byte{byte(caKeySize / 256), byte(caKeySize % 256)}
+	b.cachedCAConfig.caKeySize = caKeySize
+	return b.saveStoreData(ctx, storage, PATH_CAKEYSIZE, &data)
+}
 
-func (b *HsmPkiBackend) saveStoreData(ctx context.Context, storage logical.Storage, path string, data *string) error {
+func (b *HsmPkiBackend) saveStoreData(ctx context.Context, storage logical.Storage, path string, data *[]byte) error {
 	entry := logical.StorageEntry{
 		Key:      path,
-		Value:    []byte(*data),
+		Value:    *data,
 		SealWrap: false,
 	}
 	if err := storage.Put(ctx, &entry); err != nil {
