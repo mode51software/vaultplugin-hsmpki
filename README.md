@@ -24,6 +24,23 @@ The HSM PKI plugin can therefore selectively override some of the PKI paths whil
 
 The [pkcs11helper module](https://github.com/mode51software/pkcs11helper) provides [detailed setup instructions](https://github.com/mode51software/pkcs11helper/blob/master/SETUP.md) for SoftHSM, Thales's SafeNet and Entrust's nShield.
 
+### Configure
+
+Please prepare the [HSM configuration file in the conf/ directory](https://github.com/mode51software/vaultplugin-hsmpki/blob/master/conf/config-safenet.hcl).
+
+The path to the PKCS#11 client library is specified in this configuration file along with the Slot ID and PIN.
+
+Omit the key_label parameter to randomly generate a new key label.
+
+If you have installed and configured SafeNet DPoD set the environment first for the shell:
+
+```
+cd /opt/safenet/dpod/current
+. ./setenv
+cd <this git repo download directory>
+
+```
+
 ### Build
 
 Note that the following env var may be needed:
@@ -36,9 +53,10 @@ The following command will build the plugin binary and start the Vault server as
 make
 ```
 
-Visit [INSTALL.md](INSTALL.md) for the plugin installation and registration details.
+Visit [INSTALL.md](INSTALL.md) for the persistent plugin installation instructions and registration details.
 
 ### Login 
+
 Now open a new terminal window and login to Vault. This is an example for a dev instance:
 
 `export VAULT_ADDR='http://127.0.0.1:8200'`
